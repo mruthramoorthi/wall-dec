@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+Pillow
+ImageHash
+numpy
+python-multipart
