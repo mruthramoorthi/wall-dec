@@ -1,5 +1,5 @@
 const stockInwardModel = require('../models/stockInwardModel.cjs');
-const { parsePagination } = require('../utils/pagination.cjs');
+const { parsePagination, parseSort } = require('../utils/pagination.cjs');
 const { isNumeric, required } = require('../utils/validators.cjs');
 const { ApiError } = require('../middleware/errorHandler.cjs');
 
@@ -12,9 +12,10 @@ function validateItem(item) {
 
 exports.list = async (req, res, next) => {
   try {
-    const { page, pageSize, offset } = parsePagination(req.query);
-    const { rows, total } = await stockInwardModel.list({ pageSize, offset });
-    res.json({ data: rows, page, pageSize, total });
+    const { page, pageSize, offset, search } = parsePagination(req.query);
+    const { sortColumn, sortDir, sortKey } = parseSort(req.query, stockInwardModel.SORT_COLUMNS, 'entry_datetime');
+    const { rows, total } = await stockInwardModel.list({ pageSize, offset, search, sortColumn, sortDir });
+    res.json({ data: rows, page, pageSize, total, sortBy: sortKey, sortDir });
   } catch (err) { next(err); }
 };
 
@@ -39,10 +40,19 @@ exports.create = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    validateItem(req.body);
     const existing = await stockInwardModel.findByUid(req.params.uid);
     if (!existing) throw new ApiError(404, 'Not found');
-    const row = await stockInwardModel.edit(req.params.uid, req.body);
+
+    const payload = {
+      ...existing,
+      ...req.body,
+      size_uid: req.body.size_uid || existing.size_uid,
+      pieces: req.body.pieces ?? existing.pieces,
+      avg_total_rate: req.body.avg_total_rate ?? existing.avg_total_rate,
+    };
+
+    validateItem(payload);
+    const row = await stockInwardModel.edit(req.params.uid, payload);
     res.json({ data: row });
   } catch (err) { next(err); }
 };

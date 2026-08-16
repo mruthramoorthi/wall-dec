@@ -4,12 +4,28 @@ const { ACTIVE_FILTER, newUid, withTransaction, markSuperseded, markDeleted } = 
 const TABLE = 'dealer_master';
 const COLS = 'uid, dealer_name, dealer_code, mobile_number, gstin, city, state, entry_datetime';
 
-async function list({ pageSize, offset }) {
+const SORT_COLUMNS = {
+  dealer_name: 'dealer_name',
+  dealer_code: 'dealer_code',
+  mobile_number: 'mobile_number',
+  city: 'city',
+  state: 'state',
+  entry_datetime: 'entry_datetime',
+};
+
+async function list({ pageSize, offset, search = '', sortColumn = 'entry_datetime', sortDir = 'DESC' }) {
+  const params = [];
+  let where = `WHERE ${ACTIVE_FILTER}`;
+  if (search) {
+    where += ` AND (dealer_name LIKE ? OR dealer_code LIKE ? OR mobile_number LIKE ? OR gstin LIKE ? OR city LIKE ? OR state LIKE ?)`;
+    const like = `%${search}%`;
+    params.push(like, like, like, like, like, like);
+  }
   const [rows] = await pool.query(
-    `SELECT ${COLS} FROM ${TABLE} WHERE ${ACTIVE_FILTER} ORDER BY entry_datetime DESC LIMIT ? OFFSET ?`,
-    [pageSize, offset]
+    `SELECT ${COLS} FROM ${TABLE} ${where} ORDER BY ${sortColumn} ${sortDir} LIMIT ? OFFSET ?`,
+    [...params, pageSize, offset]
   );
-  const [[{ count }]] = await pool.query(`SELECT COUNT(*) AS count FROM ${TABLE} WHERE ${ACTIVE_FILTER}`);
+  const [[{ count }]] = await pool.query(`SELECT COUNT(*) AS count FROM ${TABLE} ${where}`, params);
   return { rows, total: count };
 }
 
@@ -66,4 +82,4 @@ async function softDelete(uid) {
   return markDeleted(pool, TABLE, uid);
 }
 
-module.exports = { list, findByUid, findConflicts, create, edit, softDelete };
+module.exports = { list, findByUid, findConflicts, create, edit, softDelete, SORT_COLUMNS };

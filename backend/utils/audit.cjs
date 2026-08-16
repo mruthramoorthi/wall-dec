@@ -3,8 +3,19 @@
 // in exactly one place.
 const { v4: uuidv4 } = require('uuid');
 
-// SQL fragment to append to any WHERE clause to get only "current & visible" rows.
+// SQL fragment for a query with NO table alias (single-table query).
 const ACTIVE_FILTER = 'update_datetime IS NULL AND delete_datetime IS NULL';
+
+// SQL fragment for a query that DOES use a table alias (any JOIN).
+// IMPORTANT: `${alias}.${ACTIVE_FILTER}` is a bug — string concatenation only
+// prefixes the alias onto update_datetime, leaving delete_datetime
+// unqualified, which MySQL rejects as ambiguous the moment a second table in
+// the join also has a delete_datetime column (every audited table does).
+// Always call activeFilter('alias') instead when a query has more than one
+// table in scope.
+function activeFilter(alias) {
+  return `${alias}.update_datetime IS NULL AND ${alias}.delete_datetime IS NULL`;
+}
 
 function newUid() {
   return uuidv4();
@@ -44,4 +55,4 @@ async function markDeleted(pool, table, uid) {
   return result.affectedRows > 0;
 }
 
-module.exports = { ACTIVE_FILTER, newUid, withTransaction, markSuperseded, markDeleted };
+module.exports = { ACTIVE_FILTER, activeFilter, newUid, withTransaction, markSuperseded, markDeleted };
