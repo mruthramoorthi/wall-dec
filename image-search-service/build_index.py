@@ -33,6 +33,8 @@ def build_index() -> dict:
     index = {}
     for path in IMAGE_STORE_PATH.iterdir():
         if path.suffix.lower() in VALID_EXT:
+            if path.stat().st_size == 0:
+                continue
             try:
                 index[path.name] = hash_image(path)
             except Exception as e:  # noqa: BLE001 - a broken/corrupt image shouldn't kill the whole index

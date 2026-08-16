@@ -1,5 +1,5 @@
 const sizeModel = require('../models/sizeModel.cjs');
-const { parsePagination } = require('../utils/pagination.cjs');
+const { parsePagination, parseSort } = require('../utils/pagination.cjs');
 const { isNumeric, required } = require('../utils/validators.cjs');
 const { ApiError } = require('../middleware/errorHandler.cjs');
 
@@ -15,9 +15,10 @@ function validateBody(body) {
 
 exports.list = async (req, res, next) => {
   try {
-    const { page, pageSize, offset } = parsePagination(req.query);
-    const { rows, total } = await sizeModel.list({ pageSize, offset });
-    res.json({ data: rows, page, pageSize, total });
+    const { page, pageSize, offset, search } = parsePagination(req.query);
+    const { sortColumn, sortDir, sortKey } = parseSort(req.query, sizeModel.SORT_COLUMNS, 'entry_datetime');
+    const { rows, total } = await sizeModel.list({ pageSize, offset, search, sortColumn, sortDir });
+    res.json({ data: rows, page, pageSize, total, sortBy: sortKey, sortDir });
   } catch (err) { next(err); }
 };
 

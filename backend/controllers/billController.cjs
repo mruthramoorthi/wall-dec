@@ -13,8 +13,9 @@ function validateBody(body) {
 exports.list = async (req, res, next) => {
   try {
     const { page, pageSize, offset } = parsePagination(req.query);
-    const { rows, total } = await billModel.list({ pageSize, offset });
-    res.json({ data: rows, page, pageSize, total });
+    const todayOnly = req.query.todayOnly === 'true';
+    const { rows, total, grandTotal } = await billModel.list({ pageSize, offset, todayOnly });
+    res.json({ data: rows, page, pageSize, total, grandTotal });
   } catch (err) { next(err); }
 };
 
