@@ -19,14 +19,16 @@ from build_index import build_index, hash_image, IMAGE_STORE_PATH, INDEX_PATH
 app = FastAPI(title="Inventory ERP - Image Search Service")
 
 _index_cache: dict = {}
+_hash_cache: dict = {}
 
 
 def load_index() -> dict:
-    global _index_cache
+    global _index_cache, _hash_cache
     if INDEX_PATH.exists():
         _index_cache = json.loads(INDEX_PATH.read_text())
     else:
         _index_cache = build_index()
+    _hash_cache = {fname: imagehash.hex_to_hash(h_str) for fname, h_str in _index_cache.items()}
     return _index_cache
 
 
@@ -38,27 +40,32 @@ def startup():
 @app.post("/reindex")
 def reindex():
     index = build_index()
-    global _index_cache
+    global _index_cache, _hash_cache
     _index_cache = index
+    _hash_cache = {fname: imagehash.hex_to_hash(h_str) for fname, h_str in index.items()}
     return {"indexed": len(index)}
 
 
 @app.post("/search")
 async def search(file: UploadFile = File(...)):
     contents = await file.read()
+    if not contents:
+        return []
+
     query_img = Image.open(io.BytesIO(contents)).convert("RGB")
     query_hash = imagehash.phash(query_img)
 
-    if not _index_cache:
+    if not _hash_cache:
         load_index()
 
     scored = []
-    for filename, hash_str in _index_cache.items():
-        distance = query_hash - imagehash.hex_to_hash(hash_str)
+    for filename, h_obj in _hash_cache.items():
+        distance = query_hash - h_obj
         # Convert hamming distance (0 = identical, higher = more different)
-        # into a 0-1 similarity score so the API contract matches docs/04-API-Docs.md.
+        # into a 0-1 similarity score.
         score = max(0.0, 1 - distance / 64)
-        scored.append({"filename": filename, "score": round(score, 4)})
+        if score >= 0.40:  # Return matches with 40%+ similarity so candidate cards display properly
+            scored.append({"filename": filename, "score": round(score, 4)})
 
     scored.sort(key=lambda m: m["score"], reverse=True)
     return scored[:10]

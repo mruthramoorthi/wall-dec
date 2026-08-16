@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 
-// Opens the device camera and lets the user capture a still frame as a Blob.
-// `autoStart` mounts the stream immediately (Billing screen, to avoid capture
-// delay); Stock Inward passes autoStart={false} and starts it on demand.
+// Opens the device camera and lets the user capture a still frame as a Blob,
+// OR pick an existing photo from the device gallery — both paths call the
+// same onCapture(blob), so whichever one is used, exactly one photo gets
+// processed. `autoStart` mounts the camera stream immediately (removes
+// capture delay); pass autoStart={false} to require an explicit tap instead.
 export default function CameraCapture({ autoStart = false, onCapture }) {
   const videoRef = useRef(null);
+  const fileInputRef = useRef(null);
   const streamRef = useRef(null);
   const [active, setActive] = useState(false);
   const [error, setError] = useState(null);
@@ -42,10 +45,28 @@ export default function CameraCapture({ autoStart = false, onCapture }) {
     canvas.toBlob((blob) => onCapture(blob), 'image/jpeg', 0.9);
   };
 
+  const handleGalleryPick = (e) => {
+    const file = e.target.files?.[0];
+    if (file) onCapture(file); // File is a Blob subclass — same onCapture contract as a live capture
+    e.target.value = ''; // allow picking the same file again later
+  };
+
   return (
     <div className="camera-capture">
       {error && <div className="field-error">{error}</div>}
-      {!active && <button type="button" onClick={start}>Open camera</button>}
+
+      <div className="capture-controls">
+        {!active && <button type="button" onClick={start}>Open camera</button>}
+        <button type="button" onClick={() => fileInputRef.current?.click()}>Upload from gallery</button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleGalleryPick}
+        />
+      </div>
+
       {active && (
         <>
           <video ref={videoRef} autoPlay playsInline muted className="camera-preview" />
