@@ -1,5 +1,6 @@
 const pool = require('../config/db.cjs');
 const { newUid, withTransaction } = require('../utils/audit.cjs');
+const { syncTransaction, deleteTransaction } = require('./transactionModel.cjs');
 
 const BILL = 'bill_master';
 const RECEIPTS = 'credit_receipts';
@@ -211,7 +212,7 @@ async function receivePayment(data, reqMeta = {}) {
 
   await withTransaction(pool, async (conn) => {
     // 1. Insert credit receipt
-    await conn.query(
+    const [rcpResult] = await conn.query(
       `INSERT INTO ${RECEIPTS} (uid, bill_uid, customer_uid, advance_uid, amount, payment_mode, ref_number, bank_uid, denominations, tendered_amount, change_returned, narration, receipt_date, entry_datetime)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
@@ -231,12 +232,35 @@ async function receivePayment(data, reqMeta = {}) {
       ]
     );
 
+    const rcpId = rcpResult.insertId;
+    const formattedRcp = `RCP-${String(rcpId).padStart(4, '0')}`;
+
     // 2. Insert into bill_payments
     await conn.query(
       `INSERT INTO ${PAYMENTS} (uid, bill_uid, payment_mode, amount, transaction_date, ref_number, bank_uid, denominations, tendered_amount, change_returned, entry_datetime)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [receiptUid, bill.uid, payment_mode, payAmt, receiptDateVal, cleanRef, cleanBank, denomJson, numTendered, numChange]
     );
+
+    // Sync into account_transactions as CREDIT_RECEIVED
+    await syncTransaction(conn, {
+      uid: receiptUid,
+      transaction_type: 'CREDIT_RECEIVED',
+      source_table: 'credit_receipts',
+      source_uid: receiptUid,
+      reference_number: formattedRcp,
+      party_name: bill.customer_name || 'Customer',
+      party_uid: bill.customer_uid,
+      amount: Math.abs(payAmt),
+      payment_mode,
+      bank_uid: cleanBank,
+      ref_number: cleanRef,
+      transaction_date: receiptDateVal,
+      denominations: denomJson,
+      tendered_amount: numTendered,
+      change_returned: numChange,
+      narration: narration || `Credit Received against Bill #${bill.bill_number || bill.uid.slice(0, 8)}`
+    });
 
     // 3. Update bill due_amount and credit_status
     await conn.query(
@@ -377,6 +401,30 @@ async function updateReceipt(receiptUid, data) {
       [newAmt, payment_mode, receiptDateVal, cleanRef, cleanBank, denomJson, numTendered, numChange, receiptUid]
     );
 
+    const [[cust]] = await conn.query(`SELECT customer_name FROM customer_master WHERE uid = ?`, [receipt.customer_uid]);
+    const customerName = cust?.customer_name || 'Customer';
+    const formattedRcp = `RCP-${String(receipt.id || '').padStart(4, '0')}`;
+
+    // Sync into account_transactions
+    await syncTransaction(conn, {
+      uid: receiptUid,
+      transaction_type: 'CREDIT_RECEIVED',
+      source_table: 'credit_receipts',
+      source_uid: receiptUid,
+      reference_number: formattedRcp,
+      party_name: customerName,
+      party_uid: receipt.customer_uid,
+      amount: Math.abs(newAmt),
+      payment_mode,
+      bank_uid: cleanBank,
+      ref_number: cleanRef,
+      transaction_date: receiptDateVal,
+      denominations: denomJson,
+      tendered_amount: numTendered,
+      change_returned: numChange,
+      narration: narration || `Credit Received against Bill #${bill.bill_number || bill.uid.slice(0, 8)}`
+    });
+
     // 3. Update bill due_amount and credit_status
     await conn.query(
       `UPDATE ${BILL}
@@ -460,6 +508,9 @@ async function deleteReceipt(receiptUid) {
        WHERE uid = ? AND delete_datetime IS NULL`,
       [receiptUid]
     );
+
+    // 3. Delete from account_transactions
+    await deleteTransaction(conn, 'credit_receipts', receiptUid);
 
     // 3. Update bill due_amount and credit_status (reverting the amount back to customer's due)
     await conn.query(

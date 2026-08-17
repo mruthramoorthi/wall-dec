@@ -1,5 +1,6 @@
 const pool = require('../config/db.cjs');
 const { ACTIVE_FILTER, activeFilter, newUid, withTransaction, markSuperseded, markDeleted } = require('../utils/audit.cjs');
+const { syncTransaction, deleteTransaction } = require('./transactionModel.cjs');
 
 const TABLE = 'expense_master';
 
@@ -135,12 +136,36 @@ async function create(data) {
   const change_returned = data.change_returned != null ? Number(data.change_returned) : null;
   const narration = data.narration ? data.narration.trim() : null;
 
-  await pool.query(
-    `INSERT INTO ${TABLE} 
-     (uid, expense_date, category, amount, payment_mode, bank_uid, ref_number, denominations, tendered_amount, change_returned, narration, entry_datetime)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [uid, expense_date, category, amount, payment_mode, bank_uid, ref_number, denominations, tendered_amount, change_returned, narration]
-  );
+  await withTransaction(pool, async (conn) => {
+    const [result] = await conn.query(
+      `INSERT INTO ${TABLE} 
+       (uid, expense_date, category, amount, payment_mode, bank_uid, ref_number, denominations, tendered_amount, change_returned, narration, entry_datetime)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [uid, expense_date, category, amount, payment_mode, bank_uid, ref_number, denominations, tendered_amount, change_returned, narration]
+    );
+
+    const expenseId = result.insertId;
+    const formattedRef = ref_number || `EXP-${String(expenseId).padStart(4, '0')}`;
+
+    // Sync into account_transactions with NEGATIVE amount
+    await syncTransaction(conn, {
+      uid,
+      transaction_type: 'EXPENSE',
+      source_table: TABLE,
+      source_uid: uid,
+      reference_number: formattedRef,
+      party_name: category,
+      amount: -Math.abs(amount), // Negative value for expense
+      payment_mode,
+      bank_uid,
+      ref_number: formattedRef,
+      transaction_date: expense_date,
+      denominations,
+      tendered_amount,
+      change_returned,
+      narration: narration || `Expense: ${category}`
+    });
+  });
 
   return findByUid(uid);
 }
@@ -168,6 +193,26 @@ async function edit(uid, data) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [uid, expense_date, category, amount, payment_mode, bank_uid, ref_number, denominations, tendered_amount, change_returned, narration]
     );
+
+    const formattedRef = ref_number || `EXP-${String(existing.expense_id || '').padStart(4, '0')}`;
+
+    await syncTransaction(conn, {
+      uid,
+      transaction_type: 'EXPENSE',
+      source_table: TABLE,
+      source_uid: uid,
+      reference_number: formattedRef,
+      party_name: category,
+      amount: -Math.abs(amount), // Negative value for expense
+      payment_mode,
+      bank_uid,
+      ref_number: formattedRef,
+      transaction_date: expense_date,
+      denominations,
+      tendered_amount,
+      change_returned,
+      narration: narration || `Expense: ${category}`
+    });
   });
 
   return findByUid(uid);
@@ -179,6 +224,7 @@ async function softDelete(uid) {
 
   await withTransaction(pool, async (conn) => {
     await markDeleted(conn, TABLE, uid);
+    await deleteTransaction(conn, TABLE, uid);
   });
   return true;
 }

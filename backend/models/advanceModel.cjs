@@ -1,5 +1,6 @@
 const pool = require('../config/db.cjs');
 const { ACTIVE_FILTER, activeFilter, newUid, withTransaction, markSuperseded, markDeleted } = require('../utils/audit.cjs');
+const { syncTransaction, deleteTransaction } = require('./transactionModel.cjs');
 
 const TABLE = 'customer_advance';
 const ITEMS_TABLE = 'advance_prebook_items';
@@ -254,11 +255,38 @@ async function create(data) {
   const change_returned = data.change_returned !== undefined && data.change_returned !== '' && data.change_returned !== null ? Number(data.change_returned) : null;
 
   await withTransaction(pool, async (conn) => {
-    await conn.query(
+    const [advResult] = await conn.query(
       `INSERT INTO ${TABLE} (uid, customer_uid, amount, is_prebook, prebook_code, is_converted_to_bill, payment_mode, transaction_date, ref_number, bank_uid, denominations, tendered_amount, change_returned, notes, entry_datetime)
        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [uid, data.customer_uid, amount, is_prebook, prebook_code, payment_mode, transaction_date, ref_number, bank_uid, denomJson, tendered_amount, change_returned, notes]
     );
+
+    const advId = advResult.insertId;
+    const formattedRef = prebook_code || `ADV-${String(advId).padStart(4, '0')}`;
+
+    const [[cust]] = await conn.query(`SELECT customer_name FROM customer_master WHERE uid = ?`, [data.customer_uid]);
+    const customerName = cust?.customer_name || 'Customer';
+
+    if (amount > 0) {
+      await syncTransaction(conn, {
+        uid,
+        transaction_type: 'ADVANCE',
+        source_table: TABLE,
+        source_uid: uid,
+        reference_number: formattedRef,
+        party_name: customerName,
+        party_uid: data.customer_uid,
+        amount: Math.abs(amount),
+        payment_mode,
+        bank_uid,
+        ref_number,
+        transaction_date: transaction_date || new Date().toISOString().slice(0, 10),
+        denominations: denomJson,
+        tendered_amount,
+        change_returned,
+        narration: notes || (is_prebook ? 'Customer Pre-booking Advance' : 'Customer Advance Payment')
+      });
+    }
 
     if (is_prebook && items.length > 0) {
       for (const item of items) {
@@ -342,6 +370,33 @@ async function edit(uid, data) {
       [uid, data.customer_uid, amount, is_prebook, prebook_code, existing?.is_converted_to_bill || 0, existing?.bill_uid || null, payment_mode, transaction_date, ref_number, bank_uid, denomJson, tendered_amount, change_returned, notes]
     );
 
+    const [[cust]] = await conn.query(`SELECT customer_name FROM customer_master WHERE uid = ?`, [data.customer_uid]);
+    const customerName = cust?.customer_name || 'Customer';
+    const formattedRef = prebook_code || `ADV-${String(existing?.id || '').padStart(4, '0')}`;
+
+    if (amount > 0) {
+      await syncTransaction(conn, {
+        uid,
+        transaction_type: 'ADVANCE',
+        source_table: TABLE,
+        source_uid: uid,
+        reference_number: formattedRef,
+        party_name: customerName,
+        party_uid: data.customer_uid,
+        amount: Math.abs(amount),
+        payment_mode,
+        bank_uid,
+        ref_number,
+        transaction_date: transaction_date || new Date().toISOString().slice(0, 10),
+        denominations: denomJson,
+        tendered_amount,
+        change_returned,
+        narration: notes || (is_prebook ? 'Customer Pre-booking Advance' : 'Customer Advance Payment')
+      });
+    } else {
+      await deleteTransaction(conn, TABLE, uid);
+    }
+
     if (is_prebook && items.length > 0) {
       for (const item of items) {
         const line_amount = Number(item.pieces) * Number(item.rate_per_piece);
@@ -374,6 +429,7 @@ async function softDelete(uid) {
     for (const row of existingItems[0]) {
       await markDeleted(conn, ITEMS_TABLE, row.uid);
     }
+    await deleteTransaction(conn, TABLE, uid);
     return markDeleted(conn, TABLE, uid);
   });
 }

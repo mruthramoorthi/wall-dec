@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db.cjs');
 const { newUid } = require('../utils/audit.cjs');
-const { isValidEmail, sendOtpEmail } = require('../services/emailService.cjs');
+const { isValidEmail, sendOtpEmail, sendPasswordResetOtpEmail } = require('../services/emailService.cjs');
 
 const USER_TABLE = 'user_master';
 const OTP_TABLE  = 'email_otp_master';
@@ -196,7 +196,7 @@ async function login(identifier, password) {
   const clean = identifier.trim().toLowerCase();
 
   const [[user]] = await pool.query(
-    `SELECT uid, first_name, last_name, mobile_number, email, DATE_FORMAT(dob, '%Y-%m-%d') AS dob, gender, profile_picture, username, password_hash, is_email_verified, ui_preferences
+    `SELECT uid, first_name, last_name, mobile_number, email, DATE_FORMAT(dob, '%Y-%m-%d') AS dob, gender, profile_picture, username, password_hash, is_email_verified, ui_preferences, role_position
      FROM ${USER_TABLE}
      WHERE (LOWER(username) = ? OR LOWER(email) = ?) AND delete_datetime IS NULL`,
     [clean, clean]
@@ -221,7 +221,8 @@ async function login(identifier, password) {
       username: user.username,
       email: user.email,
       first_name: user.first_name,
-      last_name: user.last_name
+      last_name: user.last_name,
+      role_position: user.role_position || 'Admin'
     },
     JWT_SECRET,
     { expiresIn: '7d' }
@@ -245,6 +246,7 @@ async function login(identifier, password) {
       mobile_number: user.mobile_number,
       dob: user.dob || null,
       gender: user.gender,
+      role_position: user.role_position || 'Admin',
       profile_picture: user.profile_picture || null,
       avatar_letter: user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U',
       ui_preferences: prefs
@@ -254,7 +256,7 @@ async function login(identifier, password) {
 
 async function getProfile(uid) {
   const [[user]] = await pool.query(
-    `SELECT uid, first_name, last_name, mobile_number, email, DATE_FORMAT(dob, '%Y-%m-%d') AS dob, gender, profile_picture, username, ui_preferences
+    `SELECT uid, first_name, last_name, mobile_number, email, DATE_FORMAT(dob, '%Y-%m-%d') AS dob, gender, profile_picture, username, ui_preferences, role_position
      FROM ${USER_TABLE}
      WHERE uid = ? AND delete_datetime IS NULL`,
     [uid]
@@ -269,8 +271,16 @@ async function getProfile(uid) {
   }
 
   return {
-    ...user,
+    uid: user.uid,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    username: user.username,
+    email: user.email,
+    mobile_number: user.mobile_number,
     dob: user.dob || null,
+    gender: user.gender,
+    role_position: user.role_position || 'Admin',
+    profile_picture: user.profile_picture || null,
     avatar_letter: user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U',
     ui_preferences: prefs
   };
@@ -356,11 +366,164 @@ async function changePassword(uid, { current_password, new_password }) {
   return { success: true, message: 'Password changed successfully.' };
 }
 
+function maskEmailAddress(email) {
+  if (!email || !email.includes('@')) return email;
+  const [local, domain] = email.split('@');
+  if (local.length <= 2) return `${local[0]}*@${domain}`;
+  return `${local[0]}***${local[local.length - 1]}@${domain}`;
+}
+
+async function sendForgotPasswordOtp(identifier) {
+  if (!identifier || !identifier.trim()) {
+    throw Object.assign(new Error('Please provide your registered Username or Email address.'), { status: 400 });
+  }
+
+  const clean = identifier.trim().toLowerCase();
+
+  // 1. Look up in user_master
+  let [[user]] = await pool.query(
+    `SELECT uid, first_name, username, email FROM ${USER_TABLE}
+     WHERE (LOWER(username) = ? OR LOWER(email) = ?) AND delete_datetime IS NULL`,
+    [clean, clean]
+  );
+
+  // 2. If not found in user_master, look up in employee_master
+  if (!user) {
+    const [[emp]] = await pool.query(
+      `SELECT uid, employee_name AS first_name, username, email FROM employee_master
+       WHERE (LOWER(username) = ? OR LOWER(email) = ?) AND delete_datetime IS NULL`,
+      [clean, clean]
+    );
+    if (emp) user = emp;
+  }
+
+  if (!user) {
+    throw Object.assign(new Error(`No account found matching "${identifier.trim()}". Please check and try again.`), { status: 404 });
+  }
+
+  if (!user.email || !isValidEmail(user.email)) {
+    throw Object.assign(new Error('This account does not have a registered email address on file. Please contact an administrator to reset your password.'), { status: 400 });
+  }
+
+  const targetEmail = user.email.trim().toLowerCase();
+  const otpCode = generate6DigitOtp();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+
+  // Store in email_otp_master
+  const [insertRes] = await pool.query(
+    `INSERT INTO ${OTP_TABLE} (email, otp_code, status, expires_at, is_used, entry_datetime)
+     VALUES (?, ?, 'sent', ?, 0, NOW())`,
+    [targetEmail, otpCode, expiresAt]
+  );
+  const otpId = insertRes.insertId;
+
+  try {
+    await sendPasswordResetOtpEmail(targetEmail, otpCode);
+    return {
+      success: true,
+      email: targetEmail,
+      masked_email: maskEmailAddress(targetEmail),
+      message: `Password reset OTP has been sent to ${maskEmailAddress(targetEmail)}.`
+    };
+  } catch (err) {
+    await pool.query(`UPDATE ${OTP_TABLE} SET status = 'failed' WHERE id = ?`, [otpId]);
+    throw err;
+  }
+}
+
+async function verifyForgotPasswordOtp(email, otpCode) {
+  if (!email || !otpCode) {
+    throw Object.assign(new Error('Email and OTP code are required.'), { status: 400 });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanOtp   = String(otpCode).trim();
+
+  const [[record]] = await pool.query(
+    `SELECT id, otp_code, expires_at, is_used
+     FROM ${OTP_TABLE}
+     WHERE email = ? AND otp_code = ? AND is_used = 0 AND expires_at > NOW()
+     ORDER BY id DESC LIMIT 1`,
+    [cleanEmail, cleanOtp]
+  );
+
+  if (!record) {
+    throw Object.assign(new Error('Invalid or expired OTP code. Please check and try again.'), { status: 400 });
+  }
+
+  await pool.query(
+    `UPDATE ${OTP_TABLE}
+     SET is_used = 1, status = 'verified', verified_datetime = NOW()
+     WHERE id = ?`,
+    [record.id]
+  );
+
+  return { success: true, verified: true, email: cleanEmail };
+}
+
+async function resetPasswordWithOtp({ email, otp, new_password }) {
+  if (!email || !otp) {
+    throw Object.assign(new Error('Email and OTP code are required.'), { status: 400 });
+  }
+  if (!new_password || new_password.length < 4) {
+    throw Object.assign(new Error('New password must be at least 4 characters.'), { status: 400 });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanOtp   = String(otp).trim();
+
+  // Verify OTP was marked verified recently (within 15 minutes) or valid record exists
+  const [[record]] = await pool.query(
+    `SELECT id FROM ${OTP_TABLE}
+     WHERE email = ? AND otp_code = ? AND (
+       (status = 'verified' AND verified_datetime >= NOW() - INTERVAL 15 MINUTE)
+       OR (is_used = 0 AND expires_at > NOW())
+     )
+     ORDER BY id DESC LIMIT 1`,
+    [cleanEmail, cleanOtp]
+  );
+
+  if (!record) {
+    throw Object.assign(new Error('Invalid or expired OTP session. Please request a new OTP.'), { status: 400 });
+  }
+
+  // Hash new password
+  const newHash = await bcrypt.hash(new_password.trim(), 10);
+
+  // Update in user_master
+  const [userUpdate] = await pool.query(
+    `UPDATE ${USER_TABLE} SET password_hash = ?, update_datetime = NOW()
+     WHERE LOWER(email) = ? AND delete_datetime IS NULL`,
+    [newHash, cleanEmail]
+  );
+
+  // Also update in employee_master if employee exists
+  await pool.query(
+    `UPDATE employee_master SET password_hash = ?, update_datetime = NOW()
+     WHERE LOWER(email) = ? AND delete_datetime IS NULL`,
+    [newHash, cleanEmail]
+  );
+
+  // Mark all OTPs for this email as used
+  await pool.query(
+    `UPDATE ${OTP_TABLE} SET is_used = 1, status = 'used' WHERE email = ? AND status != 'used'`,
+    [cleanEmail]
+  );
+
+  return {
+    success: true,
+    message: 'Password reset successfully! You can now log in with your new password.'
+  };
+}
+
 module.exports = {
   validatePasswordStrength,
   checkUsernameAvailable,
   sendRegistrationOtp,
   verifyRegistrationOtp,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
+  resetPasswordWithOtp,
   register,
   login,
   getProfile,

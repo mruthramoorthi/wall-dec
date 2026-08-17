@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getCompany, saveCompany } from '../../api/company.js';
+import { testSmtpConnection } from '../../api/screen.js';
 import SearchableSelect from '../../components/SearchableSelect.jsx';
 import { STATES, CITIES_BY_STATE, AREAS_BY_CITY, lookupPincode } from '../../data/locationData.js';
 
@@ -30,6 +31,16 @@ export default function CompanyRegistration() {
   const [sgst, setSgst]           = useState('');
   const [igst, setIgst]           = useState('');
 
+  // SMTP Mail fields
+  const [smtpHost, setSmtpHost]         = useState('');
+  const [smtpPort, setSmtpPort]         = useState('587');
+  const [smtpUser, setSmtpUser]         = useState('');
+  const [smtpPass, setSmtpPass]         = useState('');
+  const [smtpFromName, setSmtpFromName] = useState('');
+  const [showSmtpPass, setShowSmtpPass] = useState(false);
+  const [testingSmtp, setTestingSmtp]   = useState(false);
+  const [smtpTestMsg, setSmtpTestMsg]   = useState(null);
+
   const availableCities = CITIES_BY_STATE[state] || ['Chennai', 'Coimbatore', 'Madurai', 'Bengaluru', 'Mumbai', 'Hyderabad'];
   const availableAreas  = AREAS_BY_CITY[city]    || ['Main Market', 'Industrial Area', 'Town Centre', 'Ring Road'];
 
@@ -54,6 +65,11 @@ export default function CompanyRegistration() {
           setCgst(c.cgst_percent != null ? String(c.cgst_percent) : '');
           setSgst(c.sgst_percent != null ? String(c.sgst_percent) : '');
           setIgst(c.igst_percent != null ? String(c.igst_percent) : '');
+          setSmtpHost(c.smtp_host || '');
+          setSmtpPort(c.smtp_port ? String(c.smtp_port) : '587');
+          setSmtpUser(c.smtp_user || '');
+          setSmtpPass(c.smtp_pass || '');
+          setSmtpFromName(c.smtp_from_name || '');
         }
       } catch { /* no company yet */ }
       finally { setLoading(false); }
@@ -77,6 +93,25 @@ export default function CompanyRegistration() {
     const n = parseFloat(val);
     if (isNaN(n)) return val;
     return String(Math.min(100, Math.max(0, n)));
+  };
+
+  const handleTestSmtp = async () => {
+    setTestingSmtp(true);
+    setSmtpTestMsg(null);
+    try {
+      const res = await testSmtpConnection({
+        smtp_host: smtpHost.trim() || undefined,
+        smtp_port: smtpPort ? Number(smtpPort) : 587,
+        smtp_user: smtpUser.trim() || undefined,
+        smtp_pass: smtpPass.trim() || undefined,
+        smtp_from_name: smtpFromName.trim() || companyName.trim() || undefined
+      });
+      setSmtpTestMsg({ type: 'success', text: res.message || 'SMTP Connection Verified Successfully!' });
+    } catch (err) {
+      setSmtpTestMsg({ type: 'error', text: err.message || 'SMTP Connection Failed. Please check credentials.' });
+    } finally {
+      setTestingSmtp(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -114,9 +149,14 @@ export default function CompanyRegistration() {
         cgst_percent: isGst ? Number(cgst) : 0,
         sgst_percent: isGst ? Number(sgst) : 0,
         igst_percent: isGst ? Number(igst) : 0,
+        smtp_host: smtpHost.trim() || null,
+        smtp_port: smtpPort ? Number(smtpPort) : 587,
+        smtp_user: smtpUser.trim() || null,
+        smtp_pass: smtpPass.trim() || null,
+        smtp_from_name: smtpFromName.trim() || null,
       });
       setHasCompany(true);
-      setSuccess('Company details saved successfully!');
+      setSuccess('Company details & SMTP configuration saved successfully!');
       setTimeout(() => setSuccess(null), 4000);
     } catch (err) {
       setError(err.message);
@@ -295,13 +335,133 @@ export default function CompanyRegistration() {
           )}
         </div>
 
+        {/* ── SMTP Mail Configuration ── */}
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <h3 style={{ margin: 0 }}>📧 SMTP Mail Server Settings <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 400 }}>(Optional)</span></h3>
+            <span style={{ fontSize: '0.78rem', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '0.2rem 0.55rem', borderRadius: 5, fontWeight: 600 }}>
+              Fallback to .env enabled
+            </span>
+          </div>
+          <p style={{ margin: '0 0 1rem 0', color: '#64748b', fontSize: '0.84rem' }}>
+            Configure your custom outgoing email credentials (e.g. for registration OTPs and notifications). If left blank, the system automatically uses the server <code>.env</code> settings.
+          </p>
+
+          <div className="form-grid" style={{ gridTemplateColumns: '2fr 1fr', marginBottom: '0.85rem' }}>
+            <label>
+              SMTP Host / Server
+              <input
+                type="text"
+                value={smtpHost}
+                onChange={(e) => setSmtpHost(e.target.value)}
+                placeholder="e.g. smtp.gmail.com or mail.yourcompany.com"
+              />
+            </label>
+            <label>
+              SMTP Port
+              <input
+                type="number"
+                value={smtpPort}
+                onChange={(e) => setSmtpPort(e.target.value)}
+                placeholder="587 or 465"
+              />
+            </label>
+          </div>
+
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: '0.85rem' }}>
+            <label>
+              SMTP Email / Username
+              <input
+                type="text"
+                value={smtpUser}
+                onChange={(e) => setSmtpUser(e.target.value)}
+                placeholder="e.g. company@gmail.com"
+              />
+            </label>
+            <label>
+              SMTP Password / App Password
+              <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.3rem' }}>
+                <input
+                  type={showSmtpPass ? 'text' : 'password'}
+                  value={smtpPass}
+                  onChange={(e) => setSmtpPass(e.target.value)}
+                  placeholder="••••••••••••"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSmtpPass(!showSmtpPass)}
+                  style={{
+                    padding: '0 0.6rem',
+                    background: '#f1f5f9',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontSize: '0.8rem'
+                  }}
+                  title="Toggle Password Visibility"
+                >
+                  {showSmtpPass ? '🙈' : '👁️'}
+                </button>
+              </div>
+            </label>
+          </div>
+
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr', marginBottom: '0.85rem' }}>
+            <label>
+              Sender Display Name
+              <input
+                type="text"
+                value={smtpFromName}
+                onChange={(e) => setSmtpFromName(e.target.value)}
+                placeholder="e.g. A3 Wall Decor Notifications"
+              />
+            </label>
+          </div>
+
+          {smtpTestMsg && (
+            <div
+              style={{
+                padding: '0.6rem 0.9rem',
+                borderRadius: 6,
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                marginBottom: '0.85rem',
+                background: smtpTestMsg.type === 'success' ? '#dcfce7' : '#fee2e2',
+                color: smtpTestMsg.type === 'success' ? '#15803d' : '#b91c1c',
+                border: smtpTestMsg.type === 'success' ? '1px solid #86efac' : '1px solid #fca5a5'
+              }}
+            >
+              {smtpTestMsg.type === 'success' ? '✓ ' : '✕ '} {smtpTestMsg.text}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleTestSmtp}
+            disabled={testingSmtp}
+            style={{
+              background: '#f8fafc',
+              color: '#334155',
+              border: '1px solid #cbd5e1',
+              padding: '0.45rem 1rem',
+              borderRadius: 6,
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: testingSmtp ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {testingSmtp ? '⚡ Testing Connection…' : '⚡ Test SMTP Connection'}
+          </button>
+        </div>
+
         {error && <div className="field-error">{error}</div>}
         {success && <div className="success">✓ {success}</div>}
 
         <button
           type="submit"
           disabled={saving}
-          style={{ background: '#16a34a', color: '#fff', padding: '0.65rem 1.5rem', fontWeight: 700, fontSize: '0.95rem', borderRadius: 6, marginTop: '0.5rem' }}
+          style={{ background: '#16a34a', color: '#fff', padding: '0.65rem 1.5rem', fontWeight: 700, fontSize: '0.95rem', borderRadius: 6, marginTop: '0.5rem', cursor: 'pointer' }}
         >
           {saving ? 'Saving…' : hasCompany ? '💾 Update Company Details' : '✅ Register Company'}
         </button>

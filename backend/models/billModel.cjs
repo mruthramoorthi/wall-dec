@@ -1,5 +1,6 @@
 const pool = require('../config/db.cjs');
 const { ACTIVE_FILTER, activeFilter, newUid, withTransaction, markSuperseded, markDeleted } = require('../utils/audit.cjs');
+const { syncTransaction, deleteTransaction } = require('./transactionModel.cjs');
 
 const BILL = 'bill_master';
 const ITEMS = 'bill_items';
@@ -145,7 +146,7 @@ async function create(data) {
 
   const billUid = newUid();
   await withTransaction(pool, async (conn) => {
-    await conn.query(
+    const [billResult] = await conn.query(
       `INSERT INTO ${BILL}
        (uid, customer_uid, total_amount, discount, net_amount, cgst_percent, sgst_percent, igst_percent,
         cgst_amount, sgst_amount, igst_amount, tax_amount, grand_total, is_home_bill, prebook_code, advance_uid, advance_amount,
@@ -158,6 +159,12 @@ async function create(data) {
       ]
     );
 
+    const billId = billResult.insertId;
+    const formattedBillNo = `BILL-${String(billId).padStart(4, '0')}`;
+
+    const [[cust]] = await conn.query(`SELECT customer_name FROM customer_master WHERE uid = ?`, [data.customer_uid]);
+    const customerName = cust?.customer_name || 'Customer';
+
     for (const item of data.items) {
       const line_amount = Number(item.pieces) * Number(item.rate_per_piece);
       const itemIsHomeBill = item.is_home_bill ? 1 : 0;
@@ -169,23 +176,48 @@ async function create(data) {
     }
 
     for (const payment of data.payments) {
+      const paymentUid = newUid();
       const denomJson = payment.denominations ? (typeof payment.denominations === 'string' ? payment.denominations : JSON.stringify(payment.denominations)) : null;
+      const tenderedVal = payment.tendered_amount !== undefined && payment.tendered_amount !== '' && payment.tendered_amount !== null ? Number(payment.tendered_amount) : null;
+      const changeVal = payment.change_returned !== undefined && payment.change_returned !== '' && payment.change_returned !== null ? Number(payment.change_returned) : null;
+      const txDate = payment.transaction_date || new Date().toISOString().slice(0, 10);
+
       await conn.query(
         `INSERT INTO ${PAYMENTS} (uid, bill_uid, payment_mode, amount, transaction_date, ref_number, bank_uid, denominations, tendered_amount, change_returned, entry_datetime)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
-          newUid(),
+          paymentUid,
           billUid,
           payment.payment_mode,
           payment.amount,
-          payment.transaction_date || null,
+          txDate,
           payment.ref_number ? payment.ref_number.trim() : null,
           payment.bank_uid || null,
           denomJson,
-          payment.tendered_amount !== undefined && payment.tendered_amount !== '' && payment.tendered_amount !== null ? Number(payment.tendered_amount) : null,
-          payment.change_returned !== undefined && payment.change_returned !== '' && payment.change_returned !== null ? Number(payment.change_returned) : null
+          tenderedVal,
+          changeVal
         ]
       );
+
+      // Sync into unified account_transactions
+      await syncTransaction(conn, {
+        uid: paymentUid,
+        transaction_type: 'BILLING',
+        source_table: 'bill_payments',
+        source_uid: paymentUid,
+        reference_number: formattedBillNo,
+        party_name: customerName,
+        party_uid: data.customer_uid,
+        amount: Number(payment.amount),
+        payment_mode: payment.payment_mode,
+        bank_uid: payment.bank_uid || null,
+        ref_number: payment.ref_number ? payment.ref_number.trim() : null,
+        transaction_date: txDate,
+        denominations: denomJson,
+        tendered_amount: tenderedVal,
+        change_returned: changeVal,
+        narration: `Sale Bill #${formattedBillNo}`
+      });
     }
 
     if (advance_uid) {
@@ -306,24 +338,60 @@ async function edit(uid, data) {
       );
     }
 
+    for (const row of existingPayments[0]) {
+      await deleteTransaction(conn, 'bill_payments', row.uid);
+    }
+
+    const [[existingBill]] = await conn.query(`SELECT id FROM ${BILL} WHERE uid = ?`, [uid]);
+    const billId = existingBill?.id;
+    const formattedBillNo = `BILL-${String(billId || '').padStart(4, '0')}`;
+
+    const [[cust]] = await conn.query(`SELECT customer_name FROM customer_master WHERE uid = ?`, [data.customer_uid]);
+    const customerName = cust?.customer_name || 'Customer';
+
     for (const payment of data.payments) {
+      const paymentUid = newUid();
       const denomJson = payment.denominations ? (typeof payment.denominations === 'string' ? payment.denominations : JSON.stringify(payment.denominations)) : null;
+      const tenderedVal = payment.tendered_amount !== undefined && payment.tendered_amount !== '' && payment.tendered_amount !== null ? Number(payment.tendered_amount) : null;
+      const changeVal = payment.change_returned !== undefined && payment.change_returned !== '' && payment.change_returned !== null ? Number(payment.change_returned) : null;
+      const txDate = payment.transaction_date || new Date().toISOString().slice(0, 10);
+
       await conn.query(
         `INSERT INTO ${PAYMENTS} (uid, bill_uid, payment_mode, amount, transaction_date, ref_number, bank_uid, denominations, tendered_amount, change_returned, entry_datetime)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
-          newUid(),
+          paymentUid,
           uid,
           payment.payment_mode,
           payment.amount,
-          payment.transaction_date || null,
+          txDate,
           payment.ref_number ? payment.ref_number.trim() : null,
           payment.bank_uid || null,
           denomJson,
-          payment.tendered_amount !== undefined && payment.tendered_amount !== '' && payment.tendered_amount !== null ? Number(payment.tendered_amount) : null,
-          payment.change_returned !== undefined && payment.change_returned !== '' && payment.change_returned !== null ? Number(payment.change_returned) : null
+          tenderedVal,
+          changeVal
         ]
       );
+
+      // Sync into account_transactions
+      await syncTransaction(conn, {
+        uid: paymentUid,
+        transaction_type: 'BILLING',
+        source_table: 'bill_payments',
+        source_uid: paymentUid,
+        reference_number: formattedBillNo,
+        party_name: customerName,
+        party_uid: data.customer_uid,
+        amount: Number(payment.amount),
+        payment_mode: payment.payment_mode,
+        bank_uid: payment.bank_uid || null,
+        ref_number: payment.ref_number ? payment.ref_number.trim() : null,
+        transaction_date: txDate,
+        denominations: denomJson,
+        tendered_amount: tenderedVal,
+        change_returned: changeVal,
+        narration: `Sale Bill #${formattedBillNo}`
+      });
     }
 
     if (advance_uid) {
@@ -344,7 +412,10 @@ async function softDelete(uid) {
 
   return withTransaction(pool, async (conn) => {
     for (const row of existingItems[0]) await markDeleted(conn, ITEMS, row.uid);
-    for (const row of existingPayments[0]) await markDeleted(conn, PAYMENTS, row.uid);
+    for (const row of existingPayments[0]) {
+      await markDeleted(conn, PAYMENTS, row.uid);
+      await deleteTransaction(conn, 'bill_payments', row.uid);
+    }
     if (bill?.advance_uid) {
       await conn.query(
         `UPDATE customer_advance SET is_converted_to_bill = 0, bill_uid = NULL WHERE uid = ? AND delete_datetime IS NULL`,
