@@ -1,0 +1,336 @@
+# ============================================================
+# DEPENDENCIES
+# ============================================================
+
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.yarn-cache/
+
+# ============================================================
+# ENVIRONMENT / SECRETS
+# ============================================================
+
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Keep the example environment file
+!.env.example
+
+# Certificates / private keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# ============================================================
+# BUILD / PRODUCTION OUTPUT
+# ============================================================
+
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+.vercel/
+.netlify/
+
+# ============================================================
+# VITE
+# ============================================================
+
+.vite/
+
+# ============================================================
+# LOGS
+# ============================================================
+
+*.log
+logs/
+log/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ============================================================
+# CACHE
+# ============================================================
+
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# ============================================================
+# TEST / COVERAGE
+# ============================================================
+
+coverage/
+.nyc_output/
+.pytest_cache/
+.tox/
+.mypy_cache/
+
+# ============================================================
+# OPERATING SYSTEM FILES
+# ============================================================
+
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+
+desktop.ini
+
+# ============================================================
+# WINDOWS
+# ============================================================
+
+$RECYCLE.BIN/
+*.stackdump
+
+# ============================================================
+# IDE / EDITOR
+# ============================================================
+
+.idea/
+*.iml
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+*.swp
+*.swo
+*~
+
+# ============================================================
+# TEMPORARY / BACKUP FILES
+# ============================================================
+
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.save
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Database dumps / compressed backups
+*.sql.gz
+*.sql.zip
+*.dump
+
+# Do NOT use *.sql here.
+# Application schema / migration SQL files should remain in Git.
+
+# ============================================================
+# DATABASE BACKUP FOLDERS
+# ============================================================
+
+database-backup/
+database_backups/
+db-backup/
+db_backups/
+backups/
+backup/
+
+# ============================================================
+# UPLOADS / GENERATED USER FILES
+# ============================================================
+
+uploads/
+upload/
+storage/
+tmp/
+temp/
+
+# Keep folder structure if required
+!.gitkeep
+
+# ============================================================
+# IMAGE DATASETS
+# ============================================================
+
+dataset/
+datasets/
+training-data/
+training_data/
+image-dataset/
+image_dataset/
+stock-images/
+stock_images/
+
+# ============================================================
+# AI / MACHINE LEARNING GENERATED FILES
+# ============================================================
+
+# Model files
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.onnx
+*.bin
+*.safetensors
+*.ckpt
+
+# TensorFlow
+checkpoint/
+checkpoints/
+
+# ML cache
+.ml_cache/
+model_cache/
+models_cache/
+
+# ============================================================
+# PYTHON
+# ============================================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Python packaging
+pip-wheel-metadata/
+share/python-wheels/
+
+# ============================================================
+# PYTHON ENVIRONMENT FILES
+# ============================================================
+
+.python-version
+.pyenv/
+
+# ============================================================
+# JUPYTER
+# ============================================================
+
+.ipynb_checkpoints/
+
+# ============================================================
+# TYPESCRIPT
+# ============================================================
+
+*.tsbuildinfo
+
+# ============================================================
+# TESTING
+# ============================================================
+
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+
+# ============================================================
+# DEBUGGING
+# ============================================================
+
+.vscode/launch.json
+debug/
+debug.log
+
+# ============================================================
+# DOCKER
+# ============================================================
+
+.docker/
+docker-data/
+
+# ============================================================
+# LOCAL DEVELOPMENT CONFIG
+# ============================================================
+
+*.local.json
+config.local.*
+config.local.js
+config.local.json
+
+# ============================================================
+# OS / FILE MANAGER
+# ============================================================
+
+ehthumbs.db
+Icon?
+.Trashes
+
+# ============================================================
+# GENERATED DOCUMENTS / EXPORTS
+# ============================================================
+
+exports/
+export/
+generated/
+generated-files/
+
+# ============================================================
+# REPORTS
+# ============================================================
+
+reports/generated/
+reports/output/
+
+# ============================================================
+# FRONTEND GENERATED FILES
+# ============================================================
+
+public/generated/
+public/uploads/
+
+# ============================================================
+# LOCAL AI / IMAGE PROCESSING
+# ============================================================
+
+image-search-service/uploads/
+image-search-service/dataset/
+image-search-service/datasets/
+image-search-service/models/
+image-search-service/__pycache__/
+
+# ============================================================
+# LOCAL DEVELOPMENT DATA
+# ============================================================
+
+.local/
+.local-data/
+data/
+runtime/
