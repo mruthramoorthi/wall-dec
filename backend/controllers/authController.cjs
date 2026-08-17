@@ -16,6 +16,30 @@ exports.verifyOtp = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.sendForgotPasswordOtp = async (req, res, next) => {
+  try {
+    const { identifier } = req.body;
+    const result = await authModel.sendForgotPasswordOtp(identifier);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+exports.verifyForgotPasswordOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+    const result = await authModel.verifyForgotPasswordOtp(email, otp);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+exports.resetPasswordWithOtp = async (req, res, next) => {
+  try {
+    const { email, otp, new_password } = req.body;
+    const result = await authModel.resetPasswordWithOtp({ email, otp, new_password });
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
 exports.checkUsername = async (req, res, next) => {
   try {
     const { username } = req.params;

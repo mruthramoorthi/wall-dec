@@ -6,6 +6,15 @@ export const sendOtp = (email) =>
 export const verifyOtp = (email, otp) =>
   request('/auth/verify-otp', { method: 'POST', body: { email, otp } });
 
+export const sendForgotPasswordOtp = (identifier) =>
+  request('/auth/forgot-password/send-otp', { method: 'POST', body: { identifier } });
+
+export const verifyForgotPasswordOtp = (email, otp) =>
+  request('/auth/forgot-password/verify-otp', { method: 'POST', body: { email, otp } });
+
+export const resetPasswordWithOtp = (email, otp, new_password) =>
+  request('/auth/forgot-password/reset', { method: 'POST', body: { email, otp, new_password } });
+
 export const checkUsername = (username, excludeUid = null) => {
   const q = excludeUid ? `?exclude_uid=${encodeURIComponent(excludeUid)}` : '';
   return request(`/auth/check-username/${encodeURIComponent(username)}${q}`);

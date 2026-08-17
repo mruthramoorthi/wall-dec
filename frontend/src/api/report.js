@@ -3,7 +3,7 @@ import request from './client.js';
 export const amountTransactionReport = (
   page = 1,
   pageSize = 10,
-  { q = '', fromDate = '', toDate = '', customerUid = '', paymentMode = '', minAmount = '', maxAmount = '', sortBy = '', sortDir = '' } = {}
+  { q = '', fromDate = '', toDate = '', transactionType = '', customerUid = '', paymentMode = '', bankUid = '', minAmount = '', maxAmount = '', sortBy = '', sortDir = '' } = {}
 ) => {
   const params = new URLSearchParams();
   params.set('page', page);
@@ -11,8 +11,10 @@ export const amountTransactionReport = (
   if (q) params.set('q', q);
   if (fromDate) params.set('fromDate', fromDate);
   if (toDate) params.set('toDate', toDate);
+  if (transactionType) params.set('transactionType', transactionType);
   if (customerUid) params.set('customerUid', customerUid);
   if (paymentMode) params.set('paymentMode', paymentMode);
+  if (bankUid) params.set('bankUid', bankUid);
   if (minAmount !== '' && minAmount !== null) params.set('minAmount', minAmount);
   if (maxAmount !== '' && maxAmount !== null) params.set('maxAmount', maxAmount);
   if (sortBy) params.set('sortBy', sortBy);

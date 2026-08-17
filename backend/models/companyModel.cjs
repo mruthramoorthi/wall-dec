@@ -6,7 +6,8 @@ const TABLE = 'company_master';
 async function get() {
   const [rows] = await pool.query(
     `SELECT uid, company_name, mobile_number, email, website, address, pincode, state, city, area,
-            logo_filename, is_gst_registered, gstin, cgst_percent, sgst_percent, igst_percent, entry_datetime
+            logo_filename, is_gst_registered, gstin, cgst_percent, sgst_percent, igst_percent,
+            smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from_name, entry_datetime
      FROM ${TABLE}
      WHERE ${ACTIVE_FILTER}
      ORDER BY entry_datetime ASC LIMIT 1`
@@ -33,6 +34,11 @@ async function upsert(data) {
     cgst_percent: data.is_gst_registered ? Math.min(100, Math.max(0, Number(data.cgst_percent || 0))) : 0,
     sgst_percent: data.is_gst_registered ? Math.min(100, Math.max(0, Number(data.sgst_percent || 0))) : 0,
     igst_percent: data.is_gst_registered ? Math.min(100, Math.max(0, Number(data.igst_percent || 0))) : 0,
+    smtp_host: data.smtp_host ? data.smtp_host.trim() : null,
+    smtp_port: data.smtp_port ? Number(data.smtp_port) : 587,
+    smtp_user: data.smtp_user ? data.smtp_user.trim() : null,
+    smtp_pass: data.smtp_pass ? data.smtp_pass.trim() : (existing?.smtp_pass || null),
+    smtp_from_name: data.smtp_from_name ? data.smtp_from_name.trim() : null,
   };
 
   if (existing) {
@@ -41,8 +47,9 @@ async function upsert(data) {
       await conn.query(
         `INSERT INTO ${TABLE}
          (uid, company_name, mobile_number, email, website, address, pincode, state, city, area,
-          logo_filename, is_gst_registered, gstin, cgst_percent, sgst_percent, igst_percent, entry_datetime)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+          logo_filename, is_gst_registered, gstin, cgst_percent, sgst_percent, igst_percent,
+          smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from_name, entry_datetime)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
         [existing.uid, ...Object.values(fields)]
       );
     });
@@ -51,8 +58,9 @@ async function upsert(data) {
     await pool.query(
       `INSERT INTO ${TABLE}
        (uid, company_name, mobile_number, email, website, address, pincode, state, city, area,
-        logo_filename, is_gst_registered, gstin, cgst_percent, sgst_percent, igst_percent, entry_datetime)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+        logo_filename, is_gst_registered, gstin, cgst_percent, sgst_percent, igst_percent,
+        smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from_name, entry_datetime)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
       [uid, ...Object.values(fields)]
     );
   }

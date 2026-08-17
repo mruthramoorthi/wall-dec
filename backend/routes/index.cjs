@@ -20,5 +20,7 @@ router.use('/payment-mode', require('./paymentModeRoutes.cjs'));
 router.use('/expense', require('./expenseRoutes.cjs'));
 router.use('/expense-category', require('./expenseCategoryRoutes.cjs'));
 router.use('/print', require('./printRoutes.cjs'));
+router.use('/screens', require('./screenRoutes.cjs'));
+router.use('/roles', require('./roleRoutes.cjs'));
 
 module.exports = router;

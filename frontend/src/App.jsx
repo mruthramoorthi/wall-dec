@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, Link } from 'react-router-dom';
 import SizeMaster from './pages/SizeMaster/SizeMaster.jsx';
 import DealerMaster from './pages/DealerMaster/DealerMaster.jsx';
@@ -17,32 +17,16 @@ import BankMaster from './pages/BankMaster/BankMaster.jsx';
 import TransactionMaster from './pages/TransactionMaster/TransactionMaster.jsx';
 import Expense from './pages/Expense/Expense.jsx';
 import ExpenseCategoryMaster from './pages/ExpenseCategoryMaster/ExpenseCategoryMaster.jsx';
+import ScreenRightsMaster from './pages/ScreenRights/ScreenRightsMaster.jsx';
+import GlobalActiveScreens from './pages/GlobalScreens/GlobalActiveScreens.jsx';
+import RoleMaster from './pages/RoleMaster/RoleMaster.jsx';
 import Profile from './pages/Profile/Profile.jsx';
 import Login from './pages/Auth/Login.jsx';
 import Register from './pages/Auth/Register.jsx';
+import ProtectedRoute from './components/ProtectedRoute.jsx';
+import { getMyScreens } from './api/screen.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-
-const NAV = [
-  { to: '/company', label: '🏢 Company' },
-  { to: '/employee', label: '👥 Employees' },
-  { to: '/bank-master', label: '🏦 Bank Master' },
-  { to: '/transaction-master', label: '💳 Transaction Master' },
-  { to: '/expense-category', label: '📂 Expense Categories' },
-  { to: '/size', label: '📐 Size Master' },
-  { to: '/dealer', label: '🏭 Dealer Master' },
-  { to: '/customer', label: '🤝 Customer Master' },
-  { to: '/stock-inward', label: '📥 Stock Inward' },
-  { to: '/rate-master', label: '🏷️ Rate Master' },
-  { to: '/stock-check', label: '🔍 Stock Checking' },
-  { to: '/billing', label: '🧾 Billing' },
-  { to: '/credit-received', label: '💰 Credit Received' },
-  { to: '/credit-report', label: '📊 Credit Report' },
-  { to: '/advance', label: '🔖 Advance / Pre-booking' },
-  { to: '/expense', label: '💸 Expenses' },
-  { to: '/amount-transaction', label: '📈 Amount Transaction' },
-  { to: '/profile', label: '👤 My Profile' },
-];
 
 export default function App() {
   const [isNavOpen, setIsNavOpen] = useState(false);
@@ -55,10 +39,46 @@ export default function App() {
     }
   });
 
+  const [allowedScreens, setAllowedScreens] = useState(() => {
+    try {
+      const stored = localStorage.getItem('cached_screens');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loadingScreens, setLoadingScreens] = useState(false);
+
+  const fetchAllowedScreens = useCallback(async () => {
+    if (!currentUser) return;
+    setLoadingScreens(true);
+    try {
+      const res = await getMyScreens(currentUser.uid);
+      const screens = res.data || [];
+      setAllowedScreens(screens);
+      localStorage.setItem('cached_screens', JSON.stringify(screens));
+    } catch (err) {
+      console.warn('Could not load allowed screens from DB:', err.message);
+    } finally {
+      setLoadingScreens(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchAllowedScreens();
+    } else {
+      setAllowedScreens([]);
+      localStorage.removeItem('cached_screens');
+    }
+  }, [currentUser, fetchAllowedScreens]);
+
   const handleLogout = () => {
     localStorage.removeItem('auth_user');
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('cached_screens');
     setCurrentUser(null);
+    setAllowedScreens([]);
   };
 
   const avatarLetter = currentUser?.first_name
@@ -77,7 +97,11 @@ export default function App() {
             currentUser ? (
               <Navigate to="/billing" replace />
             ) : (
-              <Login onLoginSuccess={(u) => setCurrentUser(u)} />
+              <Login
+                onLoginSuccess={(u) => {
+                  setCurrentUser(u);
+                }}
+              />
             )
           }
         />
@@ -142,7 +166,7 @@ export default function App() {
                   <div className="mobile-nav-backdrop" onClick={() => setIsNavOpen(false)} />
                 )}
 
-                {/* Navigation Sidebar (Drawer on mobile, Sidebar on PC) */}
+                {/* Dynamic Navigation Sidebar (Loaded from DB) */}
                 <nav className={`app-nav ${isNavOpen ? 'mobile-nav-open' : ''}`}>
                   <div className="app-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <span>📦</span>
@@ -203,7 +227,7 @@ export default function App() {
                           {currentUser.first_name} {currentUser.last_name}
                         </div>
                         <div style={{ fontSize: '0.72rem', color: '#94a3b8', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                          @{currentUser.username}
+                          {currentUser.role_position || 'Admin'}
                         </div>
                       </div>
                     </Link>
@@ -216,50 +240,215 @@ export default function App() {
                         color: '#f87171',
                         border: 'none',
                         borderRadius: 6,
-                        padding: '0.3rem 0.45rem',
+                        padding: '0.4rem 0.5rem',
                         fontSize: '0.75rem',
                         fontWeight: 700,
                         cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         lineHeight: 1
                       }}
                     >
-                      🚪
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                        <line x1="12" y1="2" x2="12" y2="12" />
+                      </svg>
                     </button>
                   </div>
 
-                  {NAV.map((n) => (
+                  {/* Dynamically loaded DB screens */}
+                  {allowedScreens.map((s) => (
                     <NavLink
-                      key={n.to}
-                      to={n.to}
+                      key={s.route_path}
+                      to={s.route_path}
                       onClick={() => setIsNavOpen(false)}
                       className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
                     >
-                      {n.label}
+                      <span style={{ marginRight: '0.45rem' }}>{s.icon}</span>
+                      <span>{s.screen_name}</span>
                     </NavLink>
                   ))}
+
+                  {allowedScreens.length === 0 && !loadingScreens && (
+                    <div style={{ padding: '1rem', color: '#94a3b8', fontSize: '0.82rem', textAlign: 'center' }}>
+                      No active screens assigned.
+                    </div>
+                  )}
                 </nav>
 
                 <main className="app-main">
                   <Routes>
                     <Route path="/" element={<Navigate to="/billing" replace />} />
-                    <Route path="/company" element={<CompanyRegistration />} />
-                    <Route path="/employee" element={<EmployeeMaster />} />
-                    <Route path="/bank-master" element={<BankMaster />} />
-                    <Route path="/transaction-master" element={<TransactionMaster />} />
-                    <Route path="/expense-category" element={<ExpenseCategoryMaster />} />
-                    <Route path="/size" element={<SizeMaster />} />
-                    <Route path="/dealer" element={<DealerMaster />} />
-                    <Route path="/customer" element={<CustomerMaster />} />
-                    <Route path="/stock-inward" element={<StockInward />} />
-                    <Route path="/rate-master" element={<RateMaster />} />
-                    <Route path="/stock-check" element={<StockCheck />} />
-                    <Route path="/billing" element={<Billing />} />
-                    <Route path="/credit-received" element={<CreditReceived />} />
-                    <Route path="/credit-report" element={<CreditReport />} />
-                    <Route path="/advance" element={<Advance />} />
-                    <Route path="/expense" element={<Expense />} />
-                    <Route path="/amount-transaction" element={<AmountTransaction />} />
-                    <Route path="/profile" element={<Profile onUserUpdated={(u) => setCurrentUser(u)} />} />
+                    
+                    <Route
+                      path="/company"
+                      element={
+                        <ProtectedRoute screenKey="company" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <CompanyRegistration />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/employee"
+                      element={
+                        <ProtectedRoute screenKey="employee" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <EmployeeMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/screen-rights"
+                      element={
+                        <ProtectedRoute screenKey="screen_rights" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <ScreenRightsMaster onPermissionsUpdated={fetchAllowedScreens} />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/global-screens"
+                      element={
+                        <ProtectedRoute screenKey="global_screens" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <GlobalActiveScreens />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/role-master"
+                      element={
+                        <ProtectedRoute screenKey="role_master" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <RoleMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/bank-master"
+                      element={
+                        <ProtectedRoute screenKey="bank_master" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <BankMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/transaction-master"
+                      element={
+                        <ProtectedRoute screenKey="transaction_master" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <TransactionMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/expense-category"
+                      element={
+                        <ProtectedRoute screenKey="expense_category" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <ExpenseCategoryMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/size"
+                      element={
+                        <ProtectedRoute screenKey="size_master" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <SizeMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/dealer"
+                      element={
+                        <ProtectedRoute screenKey="dealer_master" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <DealerMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/customer"
+                      element={
+                        <ProtectedRoute screenKey="customer_master" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <CustomerMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/stock-inward"
+                      element={
+                        <ProtectedRoute screenKey="stock_inward" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <StockInward />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/rate-master"
+                      element={
+                        <ProtectedRoute screenKey="rate_master" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <RateMaster />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/stock-check"
+                      element={
+                        <ProtectedRoute screenKey="stock_check" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <StockCheck />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/billing"
+                      element={
+                        <ProtectedRoute screenKey="billing" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <Billing />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/credit-received"
+                      element={
+                        <ProtectedRoute screenKey="credit_received" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <CreditReceived />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/credit-report"
+                      element={
+                        <ProtectedRoute screenKey="credit_report" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <CreditReport />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/advance"
+                      element={
+                        <ProtectedRoute screenKey="advance" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <Advance />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/expense"
+                      element={
+                        <ProtectedRoute screenKey="expense" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <Expense />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/amount-transaction"
+                      element={
+                        <ProtectedRoute screenKey="amount_transaction" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <AmountTransaction />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/profile"
+                      element={
+                        <ProtectedRoute screenKey="profile" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <Profile onUserUpdated={(u) => setCurrentUser(u)} />
+                        </ProtectedRoute>
+                      }
+                    />
                   </Routes>
                 </main>
               </div>

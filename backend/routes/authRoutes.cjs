@@ -32,6 +32,9 @@ const upload = multer({
 
 router.post('/send-otp', authController.sendOtp);
 router.post('/verify-otp', authController.verifyOtp);
+router.post('/forgot-password/send-otp', authController.sendForgotPasswordOtp);
+router.post('/forgot-password/verify-otp', authController.verifyForgotPasswordOtp);
+router.post('/forgot-password/reset', authController.resetPasswordWithOtp);
 router.get('/check-username/:username', authController.checkUsername);
 router.post('/register', upload.single('profile_picture'), authController.register);
 router.post('/login', authController.login);

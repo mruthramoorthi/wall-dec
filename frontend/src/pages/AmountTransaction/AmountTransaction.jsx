@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { amountTransactionReport } from '../../api/report.js';
 import { listCustomers } from '../../api/customer.js';
 import { listPaymentModes } from '../../api/paymentMode.js';
+import { listBanks } from '../../api/bank.js';
 import SearchableSelect from '../../components/SearchableSelect.jsx';
 import ColumnVisibility, { useColumnVisibility } from '../../components/ColumnVisibility.jsx';
 import { TableContainer } from '../../components/TableLoadingOverlay.jsx';
@@ -9,24 +10,31 @@ import { TableContainer } from '../../components/TableLoadingOverlay.jsx';
 const inr = (n) =>
   Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const AMOUNT_TRANSACTION_COLS = [
+const TRANSACTION_COLS = [
   { key: 'sno', label: 'S.No', defaultVisible: true },
-  { key: 'bill_number', label: 'Bill No', defaultVisible: true },
   { key: 'date_time', label: 'Date & Time', defaultVisible: true },
-  { key: 'customer_name', label: 'Customer', defaultVisible: true },
-  { key: 'mobile_number', label: 'Mobile', defaultVisible: true },
-  { key: 'stock_codes', label: 'Stock Codes', defaultVisible: true },
-  { key: 'payment_modes', label: 'Payment Mode', defaultVisible: true },
-  { key: 'pieces', label: 'Pieces', defaultVisible: true },
-  { key: 'amount', label: 'Amount', defaultVisible: true }
+  { key: 'type', label: 'Transaction Type', defaultVisible: true },
+  { key: 'ref_no', label: 'Reference / Bill #', defaultVisible: true },
+  { key: 'party', label: 'Party / Payee', defaultVisible: true },
+  { key: 'payment_mode', label: 'Payment Mode', defaultVisible: true },
+  { key: 'bank', label: 'Bank / UTR Ref', defaultVisible: true },
+  { key: 'narration', label: 'Narration / Notes', defaultVisible: true },
+  { key: 'income', label: 'Income (+₹)', defaultVisible: true },
+  { key: 'expense', label: 'Expense (-₹)', defaultVisible: true }
 ];
 
 export default function AmountTransaction() {
   // Table Data
   const [rows, setRows] = useState([]);
-  const [totals, setTotals] = useState({ total_pieces: 0, total_amount: 0 });
+  const [totals, setTotals] = useState({
+    total_income: 0,
+    total_expenses: 0,
+    net_balance: 0,
+    cash_balance: 0,
+    bank_balance: 0
+  });
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -35,29 +43,58 @@ export default function AmountTransaction() {
   const [sortDir, setSortDir] = useState('desc');
 
   // Filter States
-  const [search, setSearch]           = useState('');
-  const [fromDate, setFromDate]       = useState('');
-  const [toDate, setToDate]           = useState('');
-  const [customerUid, setCustomerUid] = useState('');
-  const [paymentMode, setPaymentMode] = useState('');
-  const [minAmount, setMinAmount]     = useState('');
-  const [maxAmount, setMaxAmount]     = useState('');
-  const [customersList, setCustomersList] = useState([]);
+  const [search, setSearch]                   = useState('');
+  const [fromDate, setFromDate]               = useState('');
+  const [toDate, setToDate]                   = useState('');
+  const [transactionType, setTransactionType] = useState('ALL');
+  const [customerUid, setCustomerUid]         = useState('');
+  const [paymentMode, setPaymentMode]         = useState('ALL');
+  const [bankUid, setBankUid]                 = useState('ALL');
+  const [minAmount, setMinAmount]             = useState('');
+  const [maxAmount, setMaxAmount]             = useState('');
+
+  // Dropdown Lists
+  const [customersList, setCustomersList]       = useState([]);
   const [paymentModesList, setPaymentModesList] = useState([]);
+  const [banksList, setBanksList]               = useState([]);
+
+  // Compute Page-Level Totals for currently rendered page rows
+  const pageTotals = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    for (const r of rows) {
+      const amt = Number(r.amount || 0);
+      if (amt > 0 && r.transaction_type !== 'EXPENSE') {
+        income += amt;
+      } else if (amt < 0 || r.transaction_type === 'EXPENSE') {
+        expense += Math.abs(amt);
+      }
+    }
+    return {
+      income,
+      expense,
+      net: income - expense,
+      count: rows.length
+    };
+  }, [rows]);
 
   // Column Visibility with cross-device sync
   const { visibleColumns, toggleColumn, resetColumns, isVisible } = useColumnVisibility(
-    'amount_transaction_columns',
-    AMOUNT_TRANSACTION_COLS
+    'account_transactions_columns',
+    TRANSACTION_COLS
   );
 
   useEffect(() => {
-    listCustomers(1, 200)
+    listCustomers(1, 300)
       .then((res) => setCustomersList(res.rows || []))
       .catch(() => {});
 
     listPaymentModes(1, 100, { activeOnly: true })
       .then((res) => setPaymentModesList(res?.data || []))
+      .catch(() => {});
+
+    listBanks(1, 100, { all: true })
+      .then((res) => setBanksList(res?.data || []))
       .catch(() => {});
   }, []);
 
@@ -67,8 +104,10 @@ export default function AmountTransaction() {
       const q = opts.q !== undefined ? opts.q : search;
       const fd = opts.fromDate !== undefined ? opts.fromDate : fromDate;
       const td = opts.toDate !== undefined ? opts.toDate : toDate;
+      const tt = opts.transactionType !== undefined ? opts.transactionType : transactionType;
       const cUid = opts.customerUid !== undefined ? opts.customerUid : customerUid;
       const pm = opts.paymentMode !== undefined ? opts.paymentMode : paymentMode;
+      const bUid = opts.bankUid !== undefined ? opts.bankUid : bankUid;
       const minA = opts.minAmount !== undefined ? opts.minAmount : minAmount;
       const maxA = opts.maxAmount !== undefined ? opts.maxAmount : maxAmount;
       const sb = opts.sortBy || sortBy;
@@ -78,8 +117,10 @@ export default function AmountTransaction() {
         q,
         fromDate: fd,
         toDate: td,
+        transactionType: tt === 'ALL' ? '' : tt,
         customerUid: cUid,
-        paymentMode: pm,
+        paymentMode: pm === 'ALL' ? '' : pm,
+        bankUid: bUid === 'ALL' ? '' : bUid,
         minAmount: minA,
         maxAmount: maxA,
         sortBy: sb,
@@ -87,627 +128,786 @@ export default function AmountTransaction() {
       });
 
       setRows(res.data || []);
-      setTotals(res.totals || { total_pieces: 0, total_amount: 0 });
+      setTotals(res.totals || {
+        total_income: 0,
+        total_expenses: 0,
+        net_balance: 0,
+        cash_balance: 0,
+        bank_balance: 0
+      });
       setTotal(res.total || 0);
       setPage(res.page || p);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load transaction ledger:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load(1, pageSize);
-  }, [pageSize, fromDate, toDate, customerUid, paymentMode, minAmount, maxAmount]); // eslint-disable-line react-hooks/exhaustive-deps
+    const timer = setTimeout(() => {
+      load(1, pageSize);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, fromDate, toDate, transactionType, customerUid, paymentMode, bankUid, minAmount, maxAmount, sortBy, sortDir]); // eslint-disable-line
 
-  useEffect(() => {
-    const t = setTimeout(() => load(1, pageSize, { q: search }), 300);
-    return () => clearTimeout(t);
-  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSort = (sortKey) => {
-    if (loading) return;
-    let nextDir = 'asc';
-    if (sortBy === sortKey) {
-      nextDir = sortDir === 'asc' ? 'desc' : 'asc';
-    }
-    setSortBy(sortKey);
-    setSortDir(nextDir);
-    load(1, pageSize, { sortBy: sortKey, sortDir: nextDir });
+  const handlePageChange = (newPage) => {
+    load(newPage, pageSize);
   };
 
-  // Quick Date Preset Handlers
+  const handlePageSizeChange = (newSize) => {
+    setPageSize(newSize);
+    load(1, newSize);
+  };
+
+  const handleSort = (col) => {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col);
+      setSortDir('desc');
+    }
+  };
+
+  const resetFilters = () => {
+    setSearch('');
+    setFromDate('');
+    setToDate('');
+    setTransactionType('ALL');
+    setCustomerUid('');
+    setPaymentMode('ALL');
+    setBankUid('ALL');
+    setMinAmount('');
+    setMaxAmount('');
+  };
+
+  // Date Quick Presets
   const applyDatePreset = (preset) => {
     const today = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const toYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${yyyy}-${mm}-${dd}`;
 
     if (preset === 'today') {
-      const dStr = toYMD(today);
-      setFromDate(dStr);
-      setToDate(dStr);
+      setFromDate(todayStr);
+      setToDate(todayStr);
     } else if (preset === 'yesterday') {
-      const y = new Date();
-      y.setDate(y.getDate() - 1);
-      const dStr = toYMD(y);
-      setFromDate(dStr);
-      setToDate(dStr);
-    } else if (preset === 'last7') {
-      const d7 = new Date();
-      d7.setDate(d7.getDate() - 6);
-      setFromDate(toYMD(d7));
-      setToDate(toYMD(today));
-    } else if (preset === 'thisMonth') {
-      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-      setFromDate(toYMD(firstDay));
-      setToDate(toYMD(today));
+      const yest = new Date(today);
+      yest.setDate(today.getDate() - 1);
+      const yestStr = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`;
+      setFromDate(yestStr);
+      setToDate(yestStr);
+    } else if (preset === 'week') {
+      const firstDay = new Date(today);
+      firstDay.setDate(today.getDate() - today.getDay());
+      const firstDayStr = `${firstDay.getFullYear()}-${String(firstDay.getMonth() + 1).padStart(2, '0')}-${String(firstDay.getDate()).padStart(2, '0')}`;
+      setFromDate(firstDayStr);
+      setToDate(todayStr);
+    } else if (preset === 'month') {
+      const firstDayStr = `${yyyy}-${mm}-01`;
+      setFromDate(firstDayStr);
+      setToDate(todayStr);
     } else if (preset === 'all') {
       setFromDate('');
       setToDate('');
     }
   };
 
-  const resetAllFilters = () => {
-    setSearch('');
-    setFromDate('');
-    setToDate('');
-    setCustomerUid('');
-    setPaymentMode('');
-    setMinAmount('');
-    setMaxAmount('');
-    load(1, pageSize, {
-      q: '',
-      fromDate: '',
-      toDate: '',
-      customerUid: '',
-      paymentMode: '',
-      minAmount: '',
-      maxAmount: ''
+  const exportCSV = () => {
+    if (!rows.length) return;
+    const headers = ['S.No', 'Date', 'Type', 'Ref #', 'Party/Payee', 'Payment Mode', 'Bank', 'Narration', 'Income (+₹)', 'Expense (-₹)'];
+    const csvRows = rows.map((r, idx) => {
+      const numAmt = Number(r.amount || 0);
+      const isExp = numAmt < 0 || r.transaction_type === 'EXPENSE';
+      return [
+        idx + 1,
+        r.transaction_date,
+        r.transaction_type,
+        `"${(r.reference_number || '').replace(/"/g, '""')}"`,
+        `"${(r.party_name || '').replace(/"/g, '""')}"`,
+        r.payment_mode,
+        `"${(r.bank_name || '').replace(/"/g, '""')}"`,
+        `"${(r.narration || '').replace(/"/g, '""')}"`,
+        !isExp ? numAmt : '',
+        isExp ? Math.abs(numAmt) : ''
+      ];
     });
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...csvRows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Transaction_Ledger_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
-
-  const hasActiveFilters = search || fromDate || toDate || customerUid || paymentMode || minAmount || maxAmount;
 
   const totalPages = Math.max(Math.ceil(total / pageSize), 1);
   const startRecord = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endRecord = Math.min(page * pageSize, total);
 
-  // Pagination page numbers generator
-  const getPageNumbers = () => {
-    const pages = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
-      if (page > 3) pages.push('...');
-      const start = Math.max(2, page - 1);
-      const end = Math.min(totalPages - 1, page + 1);
-      for (let i = start; i <= end; i++) pages.push(i);
-      if (page < totalPages - 2) pages.push('...');
-      pages.push(totalPages);
-    }
-    return pages;
-  };
-
-  const visibleColCount = AMOUNT_TRANSACTION_COLS.filter((c) => isVisible(c.key)).length;
-
   return (
     <div className="page">
-      {/* Header */}
-      <div style={{ marginBottom: '1.25rem' }}>
-        <h1 style={{ margin: 0 }}>📊 Amount Transaction</h1>
-        <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-          Comprehensive billing ledger, quantities, and transaction metrics
-        </span>
+      {/* ── Page Header ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+        <div>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0 }}>
+            <span>💰</span> All Transactions &amp; Ledger
+          </h1>
+          <p style={{ margin: '0.25rem 0 0 0', color: '#64748b', fontSize: '0.88rem' }}>
+            Unified central transaction ledger tracking all sales revenue, customer advances, credit collections, and store expenses in a single ledger
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => load(page, pageSize)}
+            disabled={loading}
+            style={{
+              padding: '0.5rem 0.9rem',
+              background: '#f1f5f9',
+              color: '#334155',
+              border: '1px solid #cbd5e1',
+              borderRadius: 6,
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            ↻ Refresh
+          </button>
+          <button
+            type="button"
+            onClick={exportCSV}
+            disabled={loading || rows.length === 0}
+            style={{
+              padding: '0.5rem 0.9rem',
+              background: '#0284c7',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: loading || rows.length === 0 ? 'not-allowed' : 'pointer'
+            }}
+          >
+            📥 Export CSV
+          </button>
+        </div>
       </div>
 
-      {/* ── Basic Filters Card ── */}
-      <div className="card" style={{ padding: '0.9rem 1.1rem', marginBottom: '1rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10 }}>
-        {/* Row 1: Search + Customer Dropdown + Payment Mode + Amount Range */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1.4fr) minmax(160px, 1.1fr) minmax(150px, 1fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr)', gap: '0.75rem', alignItems: 'end', marginBottom: '0.75rem' }}>
-          {/* Search Box */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
-              🔍 Search Keywords
-            </label>
+      {/* ── KPI Summary Cards ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+        gap: '1rem',
+        marginBottom: '1.25rem'
+      }}>
+        {/* Total Income */}
+        <div style={{
+          background: '#f0fdf4',
+          border: '1.5px solid #bbf7d0',
+          borderRadius: 12,
+          padding: '1rem 1.25rem',
+          boxShadow: '0 2px 4px rgba(22, 163, 74, 0.05)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 700, textTransform: 'uppercase' }}>
+              Total Income / Receipts (+)
+            </span>
+            <span style={{ fontSize: '1.2rem' }}>📈</span>
+          </div>
+          <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#15803d', marginTop: '0.35rem' }}>
+            ₹{inr(totals.total_income)}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#16a34a', marginTop: '0.2rem' }}>
+            Sales Bills + Advances + Credit Receipts
+          </div>
+        </div>
+
+        {/* Total Expenses */}
+        <div style={{
+          background: '#fef2f2',
+          border: '1.5px solid #fecaca',
+          borderRadius: 12,
+          padding: '1rem 1.25rem',
+          boxShadow: '0 2px 4px rgba(220, 38, 38, 0.05)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 700, textTransform: 'uppercase' }}>
+              Total Expenses (-)
+            </span>
+            <span style={{ fontSize: '1.2rem' }}>📉</span>
+          </div>
+          <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#b91c1c', marginTop: '0.35rem' }}>
+            -₹{inr(totals.total_expenses)}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '0.2rem' }}>
+            Store outflows (stored as negative values)
+          </div>
+        </div>
+
+        {/* Net Balance */}
+        <div style={{
+          background: '#0f172a',
+          border: '1.5px solid #334155',
+          borderRadius: 12,
+          padding: '1rem 1.25rem',
+          color: '#fff',
+          boxShadow: '0 4px 10px rgba(15, 23, 42, 0.25)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>
+              Net Cashflow Balance (=)
+            </span>
+            <span style={{ fontSize: '1.2rem' }}>💳</span>
+          </div>
+          <div style={{
+            fontSize: '1.65rem',
+            fontWeight: 800,
+            color: totals.net_balance >= 0 ? '#4ade80' : '#f87171',
+            marginTop: '0.35rem'
+          }}>
+            ₹{inr(totals.net_balance)}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+            Net = Total Receipts - Total Expenses
+          </div>
+        </div>
+
+        {/* Cash vs Bank */}
+        <div style={{
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: 12,
+          padding: '1rem 1.25rem'
+        }}>
+          <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.4rem' }}>
+            Balances by Channel
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+            <span style={{ fontSize: '0.85rem', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              💵 <strong>Cash in Hand:</strong>
+            </span>
+            <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
+              ₹{inr(totals.cash_balance)}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.85rem', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              🏦 <strong>Bank / UPI / Online:</strong>
+            </span>
+            <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#2563eb' }}>
+              ₹{inr(totals.bank_balance)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Filters Card ── */}
+      <div className="card" style={{ padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+        {/* Row 1: Search & Date Presets */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+          <div style={{ flex: '1 1 280px' }}>
             <input
               type="text"
-              placeholder="Search Bill No, customer, mobile, stock code…"
+              placeholder="Search reference #, bill no, customer, category, narration, UTR…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={{ width: '100%', padding: '0.45rem 0.65rem', fontSize: '0.86rem', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.75rem', fontSize: '0.9rem' }}
             />
           </div>
 
-          {/* Customer Dropdown Filter */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
-              👤 Customer Filter
-            </label>
-            <SearchableSelect
-              options={[{ value: '', label: 'All Customers' }, ...customersList.map((c) => ({
-                value: c.uid,
-                label: c.customer_name,
-                sublabel: `Mob: ${c.mobile_number}`
-              }))]}
-              value={customerUid}
-              onChange={(val) => setCustomerUid(val)}
-              placeholder="All Customers"
-            />
+          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+            {[
+              { key: 'all', label: 'All Time' },
+              { key: 'today', label: 'Today' },
+              { key: 'yesterday', label: 'Yesterday' },
+              { key: 'week', label: 'This Week' },
+              { key: 'month', label: 'This Month' }
+            ].map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => applyDatePreset(p.key)}
+                style={{
+                  padding: '0.35rem 0.7rem',
+                  borderRadius: 20,
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  color: '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
+        </div>
+
+        {/* Row 2: Deep Filters (Grid) */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '0.75rem',
+          alignItems: 'flex-end'
+        }}>
+          {/* From Date */}
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569' }}>
+            From Date
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              style={{ width: '100%', marginTop: '0.25rem', boxSizing: 'border-box' }}
+            />
+          </label>
+
+          {/* To Date */}
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569' }}>
+            To Date
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              style={{ width: '100%', marginTop: '0.25rem', boxSizing: 'border-box' }}
+            />
+          </label>
+
+          {/* Transaction Type Filter */}
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569' }}>
+            Transaction Type
+            <select
+              value={transactionType}
+              onChange={(e) => setTransactionType(e.target.value)}
+              style={{ width: '100%', marginTop: '0.25rem', boxSizing: 'border-box' }}
+            >
+              <option value="ALL">All Types</option>
+              <option value="BILLING">🟢 Sales Billing (+)</option>
+              <option value="ADVANCE">🔵 Customer Advance (+)</option>
+              <option value="CREDIT_RECEIVED">🟣 Credit Received (+)</option>
+              <option value="EXPENSE">🔴 Expenses (-)</option>
+            </select>
+          </label>
 
           {/* Payment Mode Filter */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
-              💳 Payment Mode
-            </label>
-            <SearchableSelect
-              options={[{ value: '', label: 'All Payment Modes' }, ...paymentModesList.map((m) => ({
-                value: m.mode_code,
-                label: m.mode_name
-              }))]}
-              value={paymentMode}
-              onChange={(val) => setPaymentMode(val)}
-              placeholder="All Payment Modes"
-            />
-          </div>
-
-          {/* Min Amount */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
-              Min Amount (₹)
-            </label>
-            <input
-              type="number"
-              min="0"
-              placeholder="Min ₹"
-              value={minAmount}
-              onChange={(e) => setMinAmount(e.target.value)}
-              style={{ width: '100%', padding: '0.45rem 0.65rem', fontSize: '0.86rem', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-            />
-          </div>
-
-          {/* Max Amount */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
-              Max Amount (₹)
-            </label>
-            <input
-              type="number"
-              min="0"
-              placeholder="Max ₹"
-              value={maxAmount}
-              onChange={(e) => setMaxAmount(e.target.value)}
-              style={{ width: '100%', padding: '0.45rem 0.65rem', fontSize: '0.86rem', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-            />
-          </div>
-        </div>
-
-        {/* Row 2: Date Filters & Preset Buttons & Reset */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', borderTop: '1px dashed #cbd5e1', paddingTop: '0.65rem' }}>
-          {/* Date Pickers */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem' }}>
-              <span style={{ fontWeight: 700, color: '#475569' }}>From:</span>
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-                style={{ padding: '0.35rem 0.55rem', fontSize: '0.84rem', borderRadius: 6, border: '1px solid #cbd5e1' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem' }}>
-              <span style={{ fontWeight: 700, color: '#475569' }}>To:</span>
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                style={{ padding: '0.35rem 0.55rem', fontSize: '0.84rem', borderRadius: 6, border: '1px solid #cbd5e1' }}
-              />
-            </div>
-          </div>
-
-          {/* Quick Date Presets */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Quick:</span>
-            <button
-              type="button"
-              onClick={() => applyDatePreset('today')}
-              style={{ background: '#fff', border: '1px solid #cbd5e1', padding: '0.25rem 0.55rem', borderRadius: 5, fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600, color: '#334155' }}
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              onClick={() => applyDatePreset('yesterday')}
-              style={{ background: '#fff', border: '1px solid #cbd5e1', padding: '0.25rem 0.55rem', borderRadius: 5, fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600, color: '#334155' }}
-            >
-              Yesterday
-            </button>
-            <button
-              type="button"
-              onClick={() => applyDatePreset('last7')}
-              style={{ background: '#fff', border: '1px solid #cbd5e1', padding: '0.25rem 0.55rem', borderRadius: 5, fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600, color: '#334155' }}
-            >
-              Last 7 Days
-            </button>
-            <button
-              type="button"
-              onClick={() => applyDatePreset('thisMonth')}
-              style={{ background: '#fff', border: '1px solid #cbd5e1', padding: '0.25rem 0.55rem', borderRadius: 5, fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600, color: '#334155' }}
-            >
-              This Month
-            </button>
-            <button
-              type="button"
-              onClick={() => applyDatePreset('all')}
-              style={{ background: '#fff', border: '1px solid #cbd5e1', padding: '0.25rem 0.55rem', borderRadius: 5, fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600, color: '#334155' }}
-            >
-              All Time
-            </button>
-
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={resetAllFilters}
-                style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', padding: '0.25rem 0.65rem', borderRadius: 5, fontSize: '0.78rem', cursor: 'pointer', fontWeight: 700, marginLeft: '0.4rem' }}
-              >
-                ✕ Reset Filters
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Table Toolbar (Standard matching other pages) ── */}
-      <div className="table-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
-            {total} record{total !== 1 ? 's' : ''} found
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Standard Show N records dropdown */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.86rem', color: '#475569' }}>
-            <span>Show</span>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569' }}>
+            Payment Mode
             <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              style={{ padding: '0.35rem 0.55rem', borderRadius: 6, border: '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.86rem' }}
+              value={paymentMode}
+              onChange={(e) => setPaymentMode(e.target.value)}
+              style={{ width: '100%', marginTop: '0.25rem', boxSizing: 'border-box' }}
             >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
+              <option value="ALL">All Payment Modes</option>
+              <option value="cash">💵 Cash</option>
+              <option value="bank">🏦 Bank Transfer</option>
+              <option value="upi">📱 UPI / GPay</option>
+              <option value="card">💳 Card</option>
+              <option value="cheque">📄 Cheque</option>
+              {paymentModesList.map((pm) => (
+                <option key={pm.mode_code} value={pm.mode_code}>
+                  {pm.mode_name}
+                </option>
+              ))}
             </select>
-            <span>records</span>
-          </div>
+          </label>
 
-          {/* Standard Column Visibility Button */}
-          <ColumnVisibility
-            columns={AMOUNT_TRANSACTION_COLS}
-            visibleColumns={visibleColumns}
-            onToggle={toggleColumn}
-            onReset={resetColumns}
-          />
+          {/* Bank Filter */}
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569' }}>
+            Bank Account
+            <select
+              value={bankUid}
+              onChange={(e) => setBankUid(e.target.value)}
+              style={{ width: '100%', marginTop: '0.25rem', boxSizing: 'border-box' }}
+            >
+              <option value="ALL">All Bank Accounts</option>
+              {banksList.map((b) => (
+                <option key={b.uid} value={b.uid}>
+                  {b.bank_name} ({b.account_number?.slice(-4) ? `****${b.account_number.slice(-4)}` : b.bank_code})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Reset Filters */}
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <button
+              type="button"
+              onClick={resetFilters}
+              style={{
+                width: '100%',
+                padding: '0.5rem 0.8rem',
+                background: '#f1f5f9',
+                color: '#64748b',
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              ✕ Reset Filters
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* ── Table with Sorting on Every Column wrapped in TableContainer ── */}
-      <TableContainer loading={loading} text="Loading transactions…" subtext="Fetching transaction records">
-        <table className="data-table">
+      {/* ── Table Toolbar (Search Count & Column Visibility) ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div style={{ fontSize: '0.88rem', color: '#64748b' }}>
+          Showing <strong>{startRecord}</strong> to <strong>{endRecord}</strong> of <strong>{total}</strong> transactions
+        </div>
+        <ColumnVisibility
+          columns={TRANSACTION_COLS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetColumns}
+        />
+      </div>
+
+      {/* ── Data Table ── */}
+      <TableContainer loading={loading} text="Loading transactions…" subtext="Fetching unified financial ledger">
+        <table className="data-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
-            <tr>
-              {isVisible('sno') && (
-                <th
-                  onClick={() => handleSort('bill_id')}
-                  style={{ width: 50, cursor: loading ? 'wait' : 'pointer', userSelect: 'none' }}
-                  title="Sort by S.No"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span>S.No</span>
-                    <span style={{ fontSize: '0.75rem', color: sortBy === 'bill_id' ? '#2563eb' : '#94a3b8' }}>
-                      {sortBy === 'bill_id' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </div>
-                </th>
-              )}
-
-              {isVisible('bill_number') && (
-                <th
-                  onClick={() => handleSort('bill_number')}
-                  style={{ width: 110, cursor: loading ? 'wait' : 'pointer', userSelect: 'none' }}
-                  title="Sort by Bill No"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span>Bill No</span>
-                    <span style={{ fontSize: '0.75rem', color: sortBy === 'bill_number' ? '#2563eb' : '#94a3b8' }}>
-                      {sortBy === 'bill_number' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </div>
-                </th>
-              )}
-
+            <tr style={{ background: '#0f172a', color: '#fff' }}>
+              {isVisible('sno') && <th style={{ width: 45, textAlign: 'center' }}>#</th>}
               {isVisible('date_time') && (
-                <th
-                  onClick={() => handleSort('entry_datetime')}
-                  style={{ cursor: loading ? 'wait' : 'pointer', userSelect: 'none' }}
-                  title="Sort by Date & Time"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span>Date &amp; Time</span>
-                    <span style={{ fontSize: '0.75rem', color: sortBy === 'entry_datetime' ? '#2563eb' : '#94a3b8' }}>
-                      {sortBy === 'entry_datetime' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </div>
+                <th style={{ cursor: 'pointer', minWidth: 105 }} onClick={() => handleSort('transaction_date')}>
+                  Date {sortBy === 'transaction_date' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                 </th>
               )}
-
-              {isVisible('customer_name') && (
-                <th
-                  onClick={() => handleSort('customer_name')}
-                  style={{ cursor: loading ? 'wait' : 'pointer', userSelect: 'none' }}
-                  title="Sort by Customer Name"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span>Customer</span>
-                    <span style={{ fontSize: '0.75rem', color: sortBy === 'customer_name' ? '#2563eb' : '#94a3b8' }}>
-                      {sortBy === 'customer_name' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </div>
+              {isVisible('type') && <th style={{ minWidth: 120 }}>Type</th>}
+              {isVisible('ref_no') && (
+                <th style={{ cursor: 'pointer', minWidth: 110 }} onClick={() => handleSort('reference_number')}>
+                  Ref / Bill # {sortBy === 'reference_number' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                 </th>
               )}
-
-              {isVisible('mobile_number') && (
-                <th
-                  onClick={() => handleSort('mobile_number')}
-                  style={{ cursor: loading ? 'wait' : 'pointer', userSelect: 'none' }}
-                  title="Sort by Mobile Number"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span>Mobile</span>
-                    <span style={{ fontSize: '0.75rem', color: sortBy === 'mobile_number' ? '#2563eb' : '#94a3b8' }}>
-                      {sortBy === 'mobile_number' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </div>
+              {isVisible('party') && (
+                <th style={{ cursor: 'pointer', minWidth: 140 }} onClick={() => handleSort('party_name')}>
+                  Party / Payee {sortBy === 'party_name' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                 </th>
               )}
-
-              {isVisible('stock_codes') && (
-                <th
-                  onClick={() => handleSort('stock_codes')}
-                  style={{ cursor: loading ? 'wait' : 'pointer', userSelect: 'none' }}
-                  title="Sort by Stock Codes"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span>Stock Codes</span>
-                    <span style={{ fontSize: '0.75rem', color: sortBy === 'stock_codes' ? '#2563eb' : '#94a3b8' }}>
-                      {sortBy === 'stock_codes' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </div>
+              {isVisible('payment_mode') && <th style={{ minWidth: 100 }}>Payment Mode</th>}
+              {isVisible('bank') && <th style={{ minWidth: 110 }}>Bank / UTR</th>}
+              {isVisible('narration') && <th style={{ minWidth: 160 }}>Narration / Notes</th>}
+              {isVisible('income') && (
+                <th style={{ cursor: 'pointer', textAlign: 'right', minWidth: 120, color: '#4ade80' }} onClick={() => handleSort('amount')}>
+                  Income (+₹) {sortBy === 'amount' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                 </th>
               )}
-
-              {isVisible('payment_modes') && (
-                <th>Payment Mode</th>
-              )}
-
-              {isVisible('pieces') && (
-                <th
-                  onClick={() => handleSort('total_pieces')}
-                  className="num-cell"
-                  style={{ cursor: loading ? 'wait' : 'pointer', userSelect: 'none' }}
-                  title="Sort by Total Pieces"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.3rem', width: '100%' }}>
-                    <span>Pieces</span>
-                    <span style={{ fontSize: '0.75rem', color: sortBy === 'total_pieces' ? '#2563eb' : '#94a3b8' }}>
-                      {sortBy === 'total_pieces' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </div>
-                </th>
-              )}
-
-              {isVisible('amount') && (
-                <th
-                  onClick={() => handleSort('net_amount')}
-                  className="num-cell"
-                  style={{ cursor: loading ? 'wait' : 'pointer', userSelect: 'none' }}
-                  title="Sort by Amount"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.3rem', width: '100%' }}>
-                    <span>Amount</span>
-                    <span style={{ fontSize: '0.75rem', color: sortBy === 'net_amount' ? '#2563eb' : '#94a3b8' }}>
-                      {sortBy === 'net_amount' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </div>
+              {isVisible('expense') && (
+                <th style={{ cursor: 'pointer', textAlign: 'right', minWidth: 120, color: '#f87171' }} onClick={() => handleSort('amount')}>
+                  Expense (-₹) {sortBy === 'amount' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                 </th>
               )}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => (
-              <tr key={r.bill_uid}>
-                {isVisible('sno') && (
-                  <td style={{ textAlign: 'center', color: '#94a3b8' }}>
-                    {(page - 1) * pageSize + idx + 1}
-                  </td>
-                )}
+            {rows.map((row, idx) => {
+              const numAmt = Number(row.amount || 0);
+              const isExpense = numAmt < 0 || row.transaction_type === 'EXPENSE';
 
-                {isVisible('bill_number') && (
-                  <td>
-                    <span style={{ fontWeight: 700, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', padding: '0.15rem 0.45rem', borderRadius: 4, fontSize: '0.78rem', fontFamily: 'monospace' }}>
-                      {r.bill_number || `BILL-${String(r.bill_id || '').padStart(4, '0')}`}
-                    </span>
-                  </td>
-                )}
+              // Badges for Type
+              let badgeColor = '#0284c7';
+              let badgeBg = '#e0f2fe';
+              let typeLabel = row.transaction_type;
 
-                {isVisible('date_time') && (
-                  <td style={{ fontSize: '0.84rem', color: '#475569' }}>
-                    {new Date(r.entry_datetime).toLocaleString('en-IN', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </td>
-                )}
+              if (row.transaction_type === 'BILLING') {
+                badgeColor = '#15803d';
+                badgeBg = '#dcfce7';
+                typeLabel = 'Sales Bill';
+              } else if (row.transaction_type === 'ADVANCE') {
+                badgeColor = '#0369a1';
+                badgeBg = '#e0f2fe';
+                typeLabel = 'Advance';
+              } else if (row.transaction_type === 'CREDIT_RECEIVED') {
+                badgeColor = '#7e22ce';
+                badgeBg = '#f3e8ff';
+                typeLabel = 'Credit Received';
+              } else if (row.transaction_type === 'EXPENSE') {
+                badgeColor = '#b91c1c';
+                badgeBg = '#fee2e2';
+                typeLabel = 'Expense';
+              }
 
-                {isVisible('customer_name') && (
-                  <td style={{ fontWeight: 600, color: '#0f172a' }}>
-                    {r.customer_name}
-                  </td>
-                )}
-
-                {isVisible('mobile_number') && (
-                  <td style={{ color: '#475569' }}>
-                    {r.mobile_number}
-                  </td>
-                )}
-
-                {isVisible('stock_codes') && (
-                  <td style={{ fontWeight: 500 }}>
-                    {r.stock_codes ? (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                        {r.stock_codes.split(',').map((code, cIdx) => (
-                          <span key={cIdx} style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '0.1rem 0.35rem', borderRadius: 4, fontSize: '0.78rem' }}>
-                            #{code.trim()}
-                          </span>
-                        ))}
+              return (
+                <tr key={row.uid || row.id || idx} style={{ background: isExpense ? '#fff8f8' : '#fff' }}>
+                  {isVisible('sno') && (
+                    <td style={{ textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+                      {(page - 1) * pageSize + idx + 1}
+                    </td>
+                  )}
+                  {isVisible('date_time') && (
+                    <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontWeight: 600, color: '#0f172a' }}>{row.transaction_date}</div>
+                      <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                        {row.entry_datetime ? new Date(row.entry_datetime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
                       </div>
-                    ) : '—'}
-                  </td>
-                )}
-
-                {isVisible('payment_modes') && (
-                  <td>
-                    {r.payment_modes ? (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                        {r.payment_modes.split(',').map((pm, pmIdx) => (
-                          <span key={pmIdx} style={{
-                            background: '#e0f2fe',
-                            color: '#0369a1',
-                            border: '1px solid #bae6fd',
-                            padding: '0.1rem 0.4rem',
-                            borderRadius: 4,
-                            fontSize: '0.74rem',
-                            fontWeight: 700,
-                            textTransform: 'uppercase'
-                          }}>
-                            {pm.trim()}
-                          </span>
-                        ))}
+                    </td>
+                  )}
+                  {isVisible('type') && (
+                    <td>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                        background: badgeBg,
+                        color: badgeColor,
+                        padding: '0.2rem 0.55rem',
+                        borderRadius: 20,
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {isExpense ? '🔴' : '🟢'} {typeLabel}
+                      </span>
+                    </td>
+                  )}
+                  {isVisible('ref_no') && (
+                    <td>
+                      <code style={{
+                        background: '#f1f5f9',
+                        color: '#0f172a',
+                        padding: '0.15rem 0.4rem',
+                        borderRadius: 4,
+                        fontSize: '0.82rem',
+                        fontWeight: 700
+                      }}>
+                        {row.reference_number || '—'}
+                      </code>
+                    </td>
+                  )}
+                  {isVisible('party') && (
+                    <td>
+                      <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.88rem' }}>
+                        {row.party_name || (isExpense ? 'General Expense' : 'Walk-in Customer')}
                       </div>
-                    ) : '—'}
-                  </td>
-                )}
+                    </td>
+                  )}
+                  {isVisible('payment_mode') && (
+                    <td>
+                      <span style={{
+                        background: '#f8fafc',
+                        color: '#334155',
+                        border: '1px solid #e2e8f0',
+                        padding: '0.2rem 0.5rem',
+                        borderRadius: 6,
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        textTransform: 'uppercase'
+                      }}>
+                        {row.payment_mode || 'cash'}
+                      </span>
+                    </td>
+                  )}
+                  {isVisible('bank') && (
+                    <td style={{ fontSize: '0.82rem', color: '#475569' }}>
+                      {row.bank_name ? (
+                        <div>
+                          <div style={{ fontWeight: 600, color: '#0f172a' }}>{row.bank_name}</div>
+                          {row.ref_number && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>UTR: {row.ref_number}</div>}
+                        </div>
+                      ) : row.ref_number ? (
+                        <span style={{ fontFamily: 'monospace' }}>{row.ref_number}</span>
+                      ) : (
+                        <span style={{ color: '#94a3b8' }}>—</span>
+                      )}
+                    </td>
+                  )}
+                  {isVisible('narration') && (
+                    <td style={{ fontSize: '0.84rem', color: '#475569', maxWidth: 240, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={row.narration}>
+                      {row.narration || '—'}
+                    </td>
+                  )}
+                  {isVisible('income') && (
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {!isExpense ? (
+                        <span style={{ fontSize: '0.96rem', fontWeight: 800, color: '#16a34a' }}>
+                          +₹{inr(numAmt)}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#cbd5e1', fontWeight: 500 }}>—</span>
+                      )}
+                    </td>
+                  )}
+                  {isVisible('expense') && (
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {isExpense ? (
+                        <span style={{ fontSize: '0.96rem', fontWeight: 800, color: '#dc2626' }}>
+                          -₹{inr(Math.abs(numAmt))}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#cbd5e1', fontWeight: 500 }}>—</span>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
 
-                {isVisible('pieces') && (
-                  <td className="num-cell" style={{ fontWeight: 700, color: '#0f172a' }}>
-                    {Number(r.total_pieces).toLocaleString('en-IN')}
-                  </td>
-                )}
-
-                {isVisible('amount') && (
-                  <td className="num-cell" style={{ fontWeight: 800, color: '#15803d', fontSize: '0.95rem' }}>
-                    ₹{inr(r.net_amount)}
-                  </td>
-                )}
-              </tr>
-            ))}
-
-            {rows.length === 0 && (
+            {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={visibleColCount || 1} style={{ textAlign: 'center', color: '#94a3b8', padding: '2.5rem' }}>
-                  {loading ? 'Loading transactions…' : 'No transactions found.'}
+                <td colSpan={TRANSACTION_COLS.length} style={{ textAlign: 'center', padding: '2.5rem', color: '#94a3b8' }}>
+                  <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📭</div>
+                  <strong>No transactions match the selected filters.</strong>
+                  <div style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>Try clearing filters or changing the date range.</div>
                 </td>
               </tr>
             )}
           </tbody>
 
           {rows.length > 0 && (
-            <tfoot>
-              <tr style={{ background: '#f8fafc', fontWeight: 800, borderTop: '2px solid #cbd5e1' }}>
-                <td colSpan={Math.max(1, visibleColCount - (isVisible('pieces') ? 1 : 0) - (isVisible('amount') ? 1 : 0))} style={{ textAlign: 'right', color: '#334155' }}>
-                  Grand Totals:
+            <tfoot style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 700 }}>
+              {/* Row 1: Current Page Total (First Total) */}
+              <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                {isVisible('sno') && <td style={{ textAlign: 'center', color: '#64748b' }}>📄</td>}
+                {isVisible('date_time') && <td style={{ color: '#0f172a', fontWeight: 800 }}>PAGE TOTAL</td>}
+                {isVisible('type') && <td></td>}
+                {isVisible('ref_no') && <td></td>}
+                {isVisible('party') && <td style={{ fontSize: '0.82rem', color: '#64748b' }}>{pageTotals.count} on Page {page} of {totalPages}</td>}
+                {isVisible('payment_mode') && <td></td>}
+                {isVisible('bank') && <td></td>}
+                {isVisible('narration') && <td style={{ textAlign: 'right', fontWeight: 700, color: '#334155', fontSize: '0.85rem' }}>Page {page} Total:</td>}
+                {isVisible('income') && (
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap', background: '#f0fdf4', borderLeft: '1px solid #bbf7d0', borderRight: '1px solid #bbf7d0' }}>
+                    <span style={{ fontSize: '0.98rem', fontWeight: 800, color: '#16a34a' }}>
+                      +₹{inr(pageTotals.income)}
+                    </span>
+                  </td>
+                )}
+                {isVisible('expense') && (
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap', background: '#fef2f2', borderLeft: '1px solid #fecaca', borderRight: '1px solid #fecaca' }}>
+                    <span style={{ fontSize: '0.98rem', fontWeight: 800, color: '#dc2626' }}>
+                      -₹{inr(pageTotals.expense)}
+                    </span>
+                  </td>
+                )}
+              </tr>
+
+              {/* Row 2: Grand Total across all pages */}
+              <tr style={{ background: '#e2e8f0', borderBottom: '1px solid #cbd5e1' }}>
+                {isVisible('sno') && <td style={{ textAlign: 'center', color: '#0f172a' }}>Σ</td>}
+                {isVisible('date_time') && <td style={{ color: '#0f172a', fontWeight: 900 }}>GRAND TOTAL</td>}
+                {isVisible('type') && <td></td>}
+                {isVisible('ref_no') && <td></td>}
+                {isVisible('party') && <td style={{ fontSize: '0.82rem', color: '#334155', fontWeight: 700 }}>{total} Total Records</td>}
+                {isVisible('payment_mode') && <td></td>}
+                {isVisible('bank') && <td></td>}
+                {isVisible('narration') && <td style={{ textAlign: 'right', fontWeight: 900, color: '#0f172a', fontSize: '0.88rem' }}>Grand Total (All Pages):</td>}
+                {isVisible('income') && (
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap', background: '#dcfce7', borderLeft: '1.5px solid #86efac', borderRight: '1.5px solid #86efac' }}>
+                    <span style={{ fontSize: '1.05rem', fontWeight: 900, color: '#15803d' }}>
+                      +₹{inr(totals.total_income)}
+                    </span>
+                  </td>
+                )}
+                {isVisible('expense') && (
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap', background: '#fee2e2', borderLeft: '1.5px solid #fca5a5', borderRight: '1.5px solid #fca5a5' }}>
+                    <span style={{ fontSize: '1.05rem', fontWeight: 900, color: '#b91c1c' }}>
+                      -₹{inr(totals.total_expenses)}
+                    </span>
+                  </td>
+                )}
+              </tr>
+
+              {/* Row 3: Net Cashflow Balance Summary */}
+              <tr style={{ background: '#0f172a', color: '#fff' }}>
+                <td
+                  colSpan={
+                    (isVisible('sno') ? 1 : 0) +
+                    (isVisible('date_time') ? 1 : 0) +
+                    (isVisible('type') ? 1 : 0) +
+                    (isVisible('ref_no') ? 1 : 0) +
+                    (isVisible('party') ? 1 : 0) +
+                    (isVisible('payment_mode') ? 1 : 0) +
+                    (isVisible('bank') ? 1 : 0) +
+                    (isVisible('narration') ? 1 : 0)
+                  }
+                  style={{ textAlign: 'right', padding: '0.55rem 1rem', fontWeight: 700, fontSize: '0.88rem', color: '#94a3b8' }}
+                >
+                  OVERALL NET CASHFLOW BALANCE:
                 </td>
-                {isVisible('pieces') && (
-                  <td className="num-cell" style={{ color: '#0f172a', fontWeight: 800 }}>
-                    {Number(totals.total_pieces).toLocaleString('en-IN')}
-                  </td>
-                )}
-                {isVisible('amount') && (
-                  <td className="num-cell" style={{ color: '#15803d', fontWeight: 800, fontSize: '1rem' }}>
-                    ₹{inr(totals.total_amount)}
-                  </td>
-                )}
+                <td
+                  colSpan={
+                    (isVisible('income') ? 1 : 0) +
+                    (isVisible('expense') ? 1 : 0)
+                  }
+                  style={{ textAlign: 'right', padding: '0.55rem 1rem', whiteSpace: 'nowrap' }}
+                >
+                  <span style={{
+                    fontSize: '1.05rem',
+                    fontWeight: 900,
+                    color: totals.net_balance >= 0 ? '#4ade80' : '#f87171'
+                  }}>
+                    ₹{inr(totals.net_balance)}
+                  </span>
+                </td>
               </tr>
             </tfoot>
           )}
         </table>
       </TableContainer>
 
-      {/* ── Standard Bottom Pagination Bar (Exact matching other pages) ── */}
-      <div className={`pagination-bar ${loading ? 'is-loading' : ''}`} style={{ marginTop: '1rem' }}>
-        <span className="pagination-info">
-          Showing {startRecord}–{endRecord} of {total} records
-        </span>
+      {/* ── Pagination ── */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: '#64748b' }}>
+            <span>Page Size:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+              style={{ padding: '0.25rem 0.5rem', borderRadius: 6, border: '1px solid #cbd5e1' }}
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
 
-        <div className="pagination-controls">
-          <button
-            className="page-btn"
-            disabled={loading || page <= 1}
-            onClick={() => !loading && load(1, pageSize)}
-            title="First Page"
-          >
-            «
-          </button>
-          <button
-            className="page-btn"
-            disabled={loading || page <= 1}
-            onClick={() => !loading && load(page - 1, pageSize)}
-            title="Previous Page"
-          >
-            ‹
-          </button>
+          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => handlePageChange(page - 1)}
+              style={{
+                padding: '0.35rem 0.75rem',
+                background: page <= 1 ? '#f1f5f9' : '#fff',
+                color: page <= 1 ? '#94a3b8' : '#334155',
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                cursor: page <= 1 ? 'not-allowed' : 'pointer'
+              }}
+            >
+              ‹ Prev
+            </button>
 
-          {getPageNumbers().map((item, idx) =>
-            item === '...' ? (
-              <span key={`ellipsis-${idx}`} className="page-ellipsis">…</span>
-            ) : (
-              <button
-                key={item}
-                className={`page-btn${item === page ? ' active' : ''}`}
-                disabled={loading}
-                onClick={() => !loading && load(item, pageSize)}
-              >
-                {item}
-              </button>
-            )
-          )}
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155', padding: '0 0.5rem' }}>
+              Page {page} of {totalPages}
+            </span>
 
-          <button
-            className="page-btn"
-            disabled={loading || page >= totalPages}
-            onClick={() => !loading && load(page + 1, pageSize)}
-            title="Next Page"
-          >
-            ›
-          </button>
-          <button
-            className="page-btn"
-            disabled={loading || page >= totalPages}
-            onClick={() => !loading && load(totalPages, pageSize)}
-            title="Last Page"
-          >
-            »
-          </button>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => handlePageChange(page + 1)}
+              style={{
+                padding: '0.35rem 0.75rem',
+                background: page >= totalPages ? '#f1f5f9' : '#fff',
+                color: page >= totalPages ? '#94a3b8' : '#334155',
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                cursor: page >= totalPages ? 'not-allowed' : 'pointer'
+              }}
+            >
+              Next ›
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -40,3 +40,11 @@ exports.upsert = async (req, res, next) => {
     res.json({ data: company });
   } catch (err) { next(err); }
 };
+
+exports.testSmtp = async (req, res, next) => {
+  try {
+    const { testSmtpConnection } = require('../services/emailService.cjs');
+    const result = await testSmtpConnection(req.body);
+    res.json(result);
+  } catch (err) { next(err); }
+};
