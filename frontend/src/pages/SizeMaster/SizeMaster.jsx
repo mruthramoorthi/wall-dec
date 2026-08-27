@@ -198,21 +198,21 @@ export default function SizeMaster() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 60 }}>S.No</th>}
-              {isVisible('width_ft') && <SortableHeader label="Width (ft)"     sortKey="width_ft"       currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
-              {isVisible('height_ft') && <SortableHeader label="Height (ft)"    sortKey="height_ft"      currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
-              {isVisible('thickness_mm') && <SortableHeader label="Thickness (mm)" sortKey="thickness_mm"   currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
-              {isVisible('entry_date') && <SortableHeader label="Entry Date"     sortKey="entry_datetime" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
+              {isVisible('sno') && <th style={{ width: 60, textAlign: 'right' }}>S.No</th>}
+              {isVisible('width_ft') && <SortableHeader label="Width (ft)" sortKey="width_ft" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} align="right" disabled={loading} />}
+              {isVisible('height_ft') && <SortableHeader label="Height (ft)" sortKey="height_ft" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} align="right" disabled={loading} />}
+              {isVisible('thickness_mm') && <SortableHeader label="Thickness (mm)" sortKey="thickness_mm" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} align="right" disabled={loading} />}
+              {isVisible('entry_date') && <SortableHeader label="Entry Date" sortKey="entry_datetime" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
               {isVisible('actions') && <th className="actions-th">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => (
               <tr key={r.uid}>
-                {isVisible('sno') && <td>{(page - 1) * pageSize + idx + 1}</td>}
-                {isVisible('width_ft') && <td>{r.width_ft}</td>}
-                {isVisible('height_ft') && <td>{r.height_ft}</td>}
-                {isVisible('thickness_mm') && <td>{r.thickness_mm}</td>}
+                {isVisible('sno') && <td className="num-cell">{(page - 1) * pageSize + idx + 1}</td>}
+                {isVisible('width_ft') && <td className="num-cell">{r.width_ft}</td>}
+                {isVisible('height_ft') && <td className="num-cell">{r.height_ft}</td>}
+                {isVisible('thickness_mm') && <td className="num-cell">{r.thickness_mm}</td>}
                 {isVisible('entry_date') && <td>{new Date(r.entry_datetime).toLocaleString()}</td>}
                 {isVisible('actions') && (
                   <td className="action-cell">

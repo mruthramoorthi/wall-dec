@@ -479,7 +479,7 @@ export default function CustomerMaster() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 50 }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 50, textAlign: 'right' }}>S.No</th>}
               {isVisible('customer_name') && <th>Customer Name</th>}
               {isVisible('mobile_number') && <th>Mobile Number</th>}
               {isVisible('email') && <th>Email</th>}
@@ -494,7 +494,7 @@ export default function CustomerMaster() {
           <tbody>
             {rows.map((c, idx) => (
               <tr key={c.uid} style={editingUid === c.uid ? { background: '#f0f9ff' } : {}}>
-                {isVisible('sno') && <td>{(page - 1) * pageSize + idx + 1}</td>}
+                {isVisible('sno') && <td className="num-cell">{(page - 1) * pageSize + idx + 1}</td>}
                 {isVisible('customer_name') && <td style={{ fontWeight: 600, color: '#0f172a' }}>{c.customer_name}</td>}
                 {isVisible('mobile_number') && <td style={{ fontWeight: 600, color: '#0369a1' }}>{c.mobile_number}</td>}
                 {isVisible('email') && (

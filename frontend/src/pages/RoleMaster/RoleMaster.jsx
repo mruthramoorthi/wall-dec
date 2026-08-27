@@ -269,18 +269,18 @@ export default function RoleMaster() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 50 }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 50, textAlign: 'right' }}>S.No</th>}
               {isVisible('role_name') && <th>Role Name</th>}
               {isVisible('description') && <th>Description</th>}
-              {isVisible('employees') && <th style={{ textAlign: 'center', width: 130 }}>Assigned Staff</th>}
+              {isVisible('employees') && <th style={{ textAlign: 'right', width: 130 }}>Assigned Staff</th>}
               {isVisible('status') && <th style={{ textAlign: 'center', width: 90 }}>Status</th>}
-              {isVisible('actions') && <th style={{ textAlign: 'center', width: 140 }}>Actions</th>}
+              {isVisible('actions') && <th className="actions-th" style={{ textAlign: 'center', width: 140 }}>Actions</th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => (
               <tr key={r.uid} style={{ opacity: r.is_active ? 1 : 0.6 }}>
-                {isVisible('sno') && <td>{idx + 1}</td>}
+                {isVisible('sno') && <td className="num-cell">{idx + 1}</td>}
                 {isVisible('role_name') && (
                   <td style={{ fontWeight: 700, color: '#0f172a' }}>
                     <span>{r.role_name}</span>
@@ -297,7 +297,7 @@ export default function RoleMaster() {
                   </td>
                 )}
                 {isVisible('employees') && (
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'right' }}>
                     <span style={{
                       display: 'inline-block',
                       padding: '0.15rem 0.6rem',

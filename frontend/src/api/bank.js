@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+import { API_BASE } from '../utils/apiConfig.js';
 
 export async function listBanks(page = 1, pageSize = 20, opts = {}) {
   const params = new URLSearchParams({ page, pageSize });

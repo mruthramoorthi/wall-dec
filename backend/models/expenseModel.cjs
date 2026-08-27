@@ -1,6 +1,7 @@
 const pool = require('../config/db.cjs');
 const { ACTIVE_FILTER, activeFilter, newUid, withTransaction, markSuperseded, markDeleted } = require('../utils/audit.cjs');
 const { syncTransaction, deleteTransaction } = require('./transactionModel.cjs');
+const accountingService = require('../services/accountingService.cjs');
 
 const TABLE = 'expense_master';
 
@@ -165,6 +166,18 @@ async function create(data) {
       change_returned,
       narration: narration || `Expense: ${category}`
     });
+
+    // Post to Double-Entry Accounting General Ledger
+    await accountingService.postExpenseEntry(conn, {
+      expenseUid: uid,
+      expenseId,
+      category,
+      amount,
+      paymentMode: payment_mode,
+      bankUid: bank_uid || null,
+      expenseDate: expense_date,
+      narration: narration || `Expense: ${category}`
+    });
   });
 
   return findByUid(uid);
@@ -213,6 +226,18 @@ async function edit(uid, data) {
       change_returned,
       narration: narration || `Expense: ${category}`
     });
+
+    // Post to Double-Entry Accounting General Ledger
+    await accountingService.postExpenseEntry(conn, {
+      expenseUid: uid,
+      expenseId: existing.expense_id,
+      category,
+      amount,
+      paymentMode: payment_mode,
+      bankUid: bank_uid || null,
+      expenseDate: expense_date,
+      narration: narration || `Expense: ${category}`
+    });
   });
 
   return findByUid(uid);
@@ -225,6 +250,7 @@ async function softDelete(uid) {
   await withTransaction(pool, async (conn) => {
     await markDeleted(conn, TABLE, uid);
     await deleteTransaction(conn, TABLE, uid);
+    await accountingService.voidJournalEntry(conn, TABLE, uid);
   });
   return true;
 }

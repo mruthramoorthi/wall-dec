@@ -16,7 +16,6 @@ export default function CameraCapture({ autoStart = false, onCapture }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
       setActive(true);
       setError(null);
     } catch (e) {
@@ -25,9 +24,22 @@ export default function CameraCapture({ autoStart = false, onCapture }) {
   };
 
   const stop = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setActive(false);
   };
+
+  // Attach the stream to the <video> element once it's rendered in the DOM
+  useEffect(() => {
+    if (active && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [active]);
 
   useEffect(() => {
     if (autoStart) start();

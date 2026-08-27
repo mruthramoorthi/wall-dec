@@ -238,7 +238,7 @@ export default function CreditReport() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 45 }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 45, textAlign: 'right' }}>S.No</th>}
               {isVisible('bill_number') && <th style={{ width: 105 }}>Bill No</th>}
               {isVisible('bill_date') && <th>Bill Date</th>}
               {isVisible('customer_name') && <th>Customer</th>}
@@ -259,7 +259,7 @@ export default function CreditReport() {
 
               return (
                 <tr key={b.bill_uid} style={{ background: isOverdue ? '#fff5f5' : isCleared ? '#f0fdf4' : '#fff' }}>
-                  {isVisible('sno') && <td style={{ textAlign: 'center', color: '#94a3b8' }}>{(page - 1) * pageSize + idx + 1}</td>}
+                  {isVisible('sno') && <td className="num-cell" style={{ textAlign: 'right', color: '#94a3b8' }}>{(page - 1) * pageSize + idx + 1}</td>}
                   {isVisible('bill_number') && (
                     <td>
                       <span style={{ fontWeight: 700, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', padding: '0.15rem 0.45rem', borderRadius: 4, fontSize: '0.78rem', fontFamily: 'monospace' }}>

@@ -574,7 +574,7 @@ export default function AmountTransaction() {
         <table className="data-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
             <tr style={{ background: '#0f172a', color: '#fff' }}>
-              {isVisible('sno') && <th style={{ width: 45, textAlign: 'center' }}>#</th>}
+              {isVisible('sno') && <th style={{ width: 45, textAlign: 'right' }}>#</th>}
               {isVisible('date_time') && (
                 <th style={{ cursor: 'pointer', minWidth: 105 }} onClick={() => handleSort('transaction_date')}>
                   Date {sortBy === 'transaction_date' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
@@ -637,7 +637,7 @@ export default function AmountTransaction() {
               return (
                 <tr key={row.uid || row.id || idx} style={{ background: isExpense ? '#fff8f8' : '#fff' }}>
                   {isVisible('sno') && (
-                    <td style={{ textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+                    <td className="num-cell" style={{ textAlign: 'right', color: '#64748b', fontSize: '0.85rem' }}>
                       {(page - 1) * pageSize + idx + 1}
                     </td>
                   )}

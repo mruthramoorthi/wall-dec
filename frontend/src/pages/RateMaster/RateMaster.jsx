@@ -776,17 +776,17 @@ export default function RateMaster() {
               {isVisible('sno') && <th style={{ width: 50 }}>S.No</th>}
               {isVisible('image') && <th style={{ width: 75 }}>Image</th>}
               {isVisible('design_no') && <th>Design No.</th>}
-              {isVisible('size') && <th>Size</th>}
-              {isVisible('pieces') && <th>Pieces</th>}
+              {isVisible('size') && <th style={{ textAlign: 'right' }}>Size</th>}
+              {isVisible('pieces') && <th style={{ textAlign: 'right' }}>Pieces</th>}
               {isVisible('dealer') && <th>Dealer</th>}
               {isVisible('date') && <th>Date</th>}
               {isVisible('purchase_rate') && (
-                <th style={{ minWidth: 160 }}>
+                <th style={{ minWidth: 160, textAlign: 'right' }}>
                   Purchase Rate <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: '0.78rem' }}>(Total ÷ Pcs, read-only)</span>
                 </th>
               )}
               {isVisible('sell_price') && (
-                <th style={{ minWidth: 150 }}>
+                <th style={{ minWidth: 150, textAlign: 'right' }}>
                   Sell Price <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: '0.78rem' }}>(per pc, editable)</span>
                 </th>
               )}
@@ -810,7 +810,7 @@ export default function RateMaster() {
 
               return (
                 <tr key={row.uid} style={{ background: rowBg, transition: 'background 0.4s' }}>
-                  {isVisible('sno') && <td style={{ textAlign: 'center', color: '#94a3b8' }}>{(page - 1) * pageSize + idx + 1}</td>}
+                  {isVisible('sno') && <td className="num-cell" style={{ textAlign: 'right', color: '#94a3b8' }}>{(page - 1) * pageSize + idx + 1}</td>}
                   {isVisible('image') && (
                     <td>
                       <div
@@ -855,15 +855,15 @@ export default function RateMaster() {
                     </td>
                   )}
                   {isVisible('design_no') && <td><span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>#{row.design_number}</span></td>}
-                  {isVisible('size') && <td style={{ fontSize: '0.82rem', color: '#475569' }}>{row.width_ft}×{row.height_ft}ft / {row.thickness_mm}mm</td>}
-                  {isVisible('pieces') && <td style={{ textAlign: 'right', fontWeight: 700, color: '#0369a1' }}>{row.pieces}</td>}
+                  {isVisible('size') && <td className="num-cell" style={{ fontSize: '0.82rem', color: '#475569', textAlign: 'right' }}>{row.width_ft}×{row.height_ft}ft / {row.thickness_mm}mm</td>}
+                  {isVisible('pieces') && <td className="num-cell" style={{ textAlign: 'right', fontWeight: 700, color: '#0369a1' }}>{row.pieces}</td>}
                   {isVisible('dealer') && <td style={{ color: '#475569', fontSize: '0.88rem' }}>{row.dealer_name || '—'}</td>}
                   {isVisible('date') && <td style={{ fontSize: '0.8rem', color: '#64748b', whiteSpace: 'nowrap' }}>{formatDate(row.entry_datetime)}</td>}
 
                   {/* ── Purchase Rate (read-only) ── */}
                   {isVisible('purchase_rate') && (
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <td className="num-cell" style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
                         <div style={{ fontWeight: 700, fontSize: '0.92rem', color: purchaseRate > 0 ? '#0f172a' : '#94a3b8' }}>
                           {purchaseRate > 0 ? `₹${inr(purchaseRate)}/pc` : '—'}
                         </div>
@@ -878,11 +878,13 @@ export default function RateMaster() {
 
                   {/* ── Sell Price (editable) ── */}
                   {isVisible('sell_price') && (
-                    <td>
-                      <SellInput
-                        value={row.selling_price_per_piece}
-                        onSave={(v) => handleSave(row.uid, v)}
-                      />
+                    <td className="num-cell" style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <SellInput
+                          value={row.selling_price_per_piece}
+                          onSave={(v) => handleSave(row.uid, v)}
+                        />
+                      </div>
                     </td>
                   )}
 

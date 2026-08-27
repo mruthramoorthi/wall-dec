@@ -1,6 +1,7 @@
 const pool = require('../config/db.cjs');
 const { ACTIVE_FILTER, activeFilter, newUid, withTransaction, markSuperseded, markDeleted } = require('../utils/audit.cjs');
 const stockModel = require('./stockModel.cjs');
+const accountingService = require('../services/accountingService.cjs');
 
 const TABLE = 'stock_inward';
 
@@ -8,16 +9,6 @@ const COLS = `si.uid, si.is_opening, si.dealer_uid, d.dealer_name, si.stock_uid,
               si.avg_total_rate, si.avg_rate_per_piece, si.entry_datetime,
               sm.design_number, sm.image_filename, sz.width_ft, sz.height_ft, sz.thickness_mm`;
 
-// FIX: the previous version built this as `si.${ACTIVE_FILTER}`, which is a
-// plain string concat — it only prefixes "si." onto update_datetime, leaving
-// delete_datetime unqualified. Since stock_master/size_master/dealer_master
-// all have their own delete_datetime column too, MySQL rejects that as an
-// ambiguous column reference ("Column 'delete_datetime' in where clause is
-// ambiguous") the moment more than one table is in scope — which is exactly
-// why Stock Inward couldn't save/list. Fixed by using activeFilter(alias),
-// and the joins to stock_master/size_master/dealer_master now also filter to
-// their active row so a superseded (edited-away) master version can never be
-// silently joined in as a duplicate row.
 const JOIN = `
   FROM ${TABLE} si
   JOIN stock_master sm ON sm.uid = si.stock_uid AND ${activeFilter('sm')}
@@ -56,28 +47,128 @@ async function findByUid(uid) {
   return rows[0] || null;
 }
 
-// data: { is_opening, dealer_uid, items: [{ image_filename?, size_uid, pieces, avg_total_rate, selling_price_per_piece }] }
-// Saves every line item in one transaction, creating/finding the stock_master
-// row for each line (per SRS 5.3: matched image -> design number; no image -> new design).
+// data: { is_opening, dealer_uid, items: [{ image_filename?, size_uid, pieces, avg_total_rate, selling_price_per_piece }], payment_mode?, paid_amount?, bank_uid?, ref_number?, due_date?, due_narration? }
 async function createBatch(data) {
   return withTransaction(pool, async (conn) => {
     const createdUids = [];
+    let batchTotalAmount = 0;
+    let dealerName = 'Supplier Dealer';
+
+    if (data.dealer_uid) {
+      const [[dealer]] = await conn.query('SELECT dealer_name FROM dealer_master WHERE uid = ?', [data.dealer_uid]);
+      if (dealer) dealerName = dealer.dealer_name;
+    }
+
+    const totalBatchAmt = data.items.reduce((s, i) => s + Number(i.avg_total_rate || 0), 0);
+
+    // Normalize multiple payment lines
+    let paymentsList = [];
+    if (!data.is_opening) {
+      if (Array.isArray(data.payments) && data.payments.length > 0) {
+        paymentsList = data.payments.filter(p => Number(p.amount) > 0);
+      } else if (Number(data.paid_amount) > 0) {
+        paymentsList = [{
+          payment_mode: data.payment_mode || 'cash',
+          amount: Number(data.paid_amount),
+          bank_uid: data.bank_uid || null,
+          ref_number: data.ref_number || null,
+          transaction_date: data.payment_date || null
+        }];
+      }
+    }
+
+    const totalPaidAmt = data.is_opening ? 0 : Math.min(totalBatchAmt, paymentsList.reduce((s, p) => s + Number(p.amount || 0), 0));
+    const totalDueAmt = data.is_opening ? 0 : Math.max(0, totalBatchAmt - totalPaidAmt);
+    const payMode = data.is_opening ? 'opening' : (paymentsList.length > 1 ? 'split' : (paymentsList[0]?.payment_mode || (totalPaidAmt > 0 ? 'cash' : 'credit')));
+    const cleanBank = paymentsList[0]?.bank_uid || data.bank_uid || null;
+    const cleanRef = paymentsList[0]?.ref_number || (data.ref_number ? data.ref_number.trim() : null);
+    const cleanDueDate = data.due_date || null;
+    const cleanDueNarr = data.due_narration || null;
+    const overallCreditStatus = data.is_opening ? 'paid' : (totalDueAmt <= 0 ? 'paid' : (totalPaidAmt > 0 ? 'partially_paid' : 'unpaid'));
+
     for (const item of data.items) {
       const stock = await stockModel.findOrCreateForInward({
         image_filename: item.image_filename || null,
+        gallery_images: item.gallery_images || null,
         size_uid: item.size_uid,
-      });
+      }, conn);
       const uid = newUid();
       const avgRatePerPiece = Number(item.avg_total_rate) / Number(item.pieces);
       const sellingPricePerPiece = item.selling_price_per_piece ? Number(item.selling_price_per_piece) : null;
+      const itemTot = Number(item.avg_total_rate || 0);
+      batchTotalAmount += itemTot;
+
+      // Proportional payment allocation for individual line items
+      const itemRatio = totalBatchAmt > 0 ? itemTot / totalBatchAmt : 0;
+      const itemPaid = Math.round(totalPaidAmt * itemRatio * 100) / 100;
+      const itemDue = Math.max(0, Math.round((itemTot - itemPaid) * 100) / 100);
+      const itemStatus = data.is_opening ? 'paid' : (itemDue <= 0 ? 'paid' : (itemPaid > 0 ? 'partially_paid' : 'unpaid'));
+
       await conn.query(
         `INSERT INTO ${TABLE}
-         (uid, is_opening, dealer_uid, stock_uid, size_uid, pieces, avg_total_rate, avg_rate_per_piece, selling_price_per_piece, entry_datetime)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [uid, data.is_opening ? 1 : 0, data.is_opening ? null : data.dealer_uid, stock.uid, item.size_uid, item.pieces, item.avg_total_rate, avgRatePerPiece, sellingPricePerPiece]
+         (uid, is_opening, dealer_uid, stock_uid, size_uid, pieces, avg_total_rate, total_purchase_amount, paid_amount, due_amount, payment_mode, bank_uid, ref_number, due_date, due_narration, credit_status, avg_rate_per_piece, selling_price_per_piece, entry_datetime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          uid,
+          data.is_opening ? 1 : 0,
+          data.is_opening ? null : data.dealer_uid,
+          stock.uid,
+          item.size_uid,
+          item.pieces,
+          item.avg_total_rate,
+          itemTot,
+          itemPaid,
+          itemDue,
+          payMode,
+          cleanBank,
+          cleanRef,
+          cleanDueDate,
+          cleanDueNarr,
+          itemStatus,
+          avgRatePerPiece,
+          sellingPricePerPiece
+        ]
       );
       createdUids.push(uid);
     }
+
+    // If purchase from dealer, post to Double-Entry Accounting
+    if (!data.is_opening && data.dealer_uid && batchTotalAmount > 0) {
+      const primaryUid = createdUids[0];
+      await accountingService.postStockInwardEntry(conn, {
+        inwardUid: primaryUid,
+        inwardId: createdUids.length,
+        dealerUid: data.dealer_uid,
+        dealerName,
+        totalAmount: batchTotalAmount,
+        paidAmount: totalPaidAmt,
+        paymentMode: payMode,
+        bankUid: cleanBank,
+        payments: paymentsList,
+        inwardDate: new Date(),
+        narration: `Stock Inward Batch (${data.items.length} items) from ${dealerName}${totalPaidAmt > 0 ? ` (Paid: ₹${totalPaidAmt})` : ' (Full Credit)'}`
+      });
+
+      // If immediate payments were made, record each payment split in dealer_payments ledger
+      for (const p of paymentsList) {
+        await conn.query(
+          `INSERT INTO dealer_payments
+           (uid, inward_uid, dealer_uid, amount, payment_mode, bank_uid, ref_number, payment_date, narration, entry_datetime)
+           VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            primaryUid,
+            data.dealer_uid,
+            Number(p.amount),
+            p.payment_mode || 'cash',
+            p.bank_uid || null,
+            p.ref_number || null,
+            p.transaction_date ? String(p.transaction_date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+            p.narration || `Upfront payment (${(p.payment_mode || 'cash').toUpperCase()}) on inward from ${dealerName}`
+          ]
+        );
+      }
+    }
+
     return createdUids;
   });
 }
@@ -107,7 +198,10 @@ async function edit(uid, item) {
 }
 
 async function softDelete(uid) {
-  return markDeleted(pool, TABLE, uid);
+  return withTransaction(pool, async (conn) => {
+    await accountingService.voidJournalEntry(conn, TABLE, uid);
+    return markDeleted(conn, TABLE, uid);
+  });
 }
 
 module.exports = { list, findByUid, createBatch, edit, softDelete, SORT_COLUMNS };

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const fetch = require('node-fetch');
 const FormData = require('form-data');
 const stockModel = require('../models/stockModel.cjs');
@@ -87,6 +88,21 @@ exports.uploadImage = async (req, res, next) => {
     if (!req.file) throw new ApiError(400, 'File is required', 'file');
     fs.mkdirSync(IMAGE_STORE_DIR, { recursive: true });
 
+    // Deduplicate exact same file bytes if already present in store
+    const uploadSha = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    try {
+      const existingFiles = fs.readdirSync(IMAGE_STORE_DIR);
+      for (const f of existingFiles) {
+        try {
+          const fpath = path.join(IMAGE_STORE_DIR, f);
+          const fSha = crypto.createHash('sha256').update(fs.readFileSync(fpath)).digest('hex');
+          if (fSha === uploadSha) {
+            return res.json({ data: { filename: f } });
+          }
+        } catch {}
+      }
+    } catch {}
+
     const ext = path.extname(req.file.originalname || 'new-design.jpg') || '.jpg';
     const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext.toLowerCase()) ? ext.toLowerCase() : '.jpg';
     const filename = `new-design-${Date.now()}-${Math.round(Math.random() * 100000)}${safeExt}`;
@@ -123,3 +139,11 @@ exports.list = async (req, res, next) => {
     res.json({ data: rows, page, pageSize, total });
   } catch (err) { next(err); }
 };
+
+exports.getCatalogList = async (req, res, next) => {
+  try {
+    const rows = await stockModel.getCatalogList();
+    res.json({ data: rows });
+  } catch (err) { next(err); }
+};
+

@@ -4,12 +4,14 @@ const cors = require('cors');
 const path = require('path');
 const routes = require('./routes/index.cjs');
 const { errorHandler } = require('./middleware/errorHandler.cjs');
+const { serveOptimizedImage } = require('./middleware/imageOptimizer.cjs');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve design images from the image-search-service image store
+// Serve optimized and resized WebP images from the image store with on-the-fly caching
+app.get('/images/*', serveOptimizedImage);
 const IMAGE_STORE = path.join(__dirname, '..', 'image-search-service', 'image-store');
 app.use('/images', express.static(IMAGE_STORE));
 

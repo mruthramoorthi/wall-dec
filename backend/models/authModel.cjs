@@ -159,11 +159,14 @@ async function register(data) {
   // 5. Hash password
   const password_hash = await bcrypt.hash(password, 10);
   const userUid = newUid();
+  const assignedRole = data.role && ['admin', 'employee', 'customer'].includes(String(data.role).toLowerCase())
+    ? String(data.role).toLowerCase()
+    : 'customer';
 
   await pool.query(
     `INSERT INTO ${USER_TABLE}
-     (uid, first_name, last_name, mobile_number, email, dob, gender, profile_picture, username, password_hash, is_email_verified, entry_datetime)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())`,
+     (uid, first_name, last_name, mobile_number, email, dob, gender, profile_picture, username, password_hash, is_email_verified, role, role_position, entry_datetime)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'Customer', NOW())`,
     [
       userUid,
       first_name.trim(),
@@ -174,7 +177,8 @@ async function register(data) {
       gender,
       profile_picture || null,
       cleanUsername,
-      password_hash
+      password_hash,
+      assignedRole
     ]
   );
 
@@ -184,6 +188,7 @@ async function register(data) {
     last_name: last_name.trim(),
     username: cleanUsername,
     email: cleanEmail,
+    role: assignedRole,
     profile_picture: profile_picture || null,
     is_email_verified: 1
   };
@@ -196,7 +201,7 @@ async function login(identifier, password) {
   const clean = identifier.trim().toLowerCase();
 
   const [[user]] = await pool.query(
-    `SELECT uid, first_name, last_name, mobile_number, email, DATE_FORMAT(dob, '%Y-%m-%d') AS dob, gender, profile_picture, username, password_hash, is_email_verified, ui_preferences, role_position
+    `SELECT uid, first_name, last_name, mobile_number, email, DATE_FORMAT(dob, '%Y-%m-%d') AS dob, gender, profile_picture, username, password_hash, is_email_verified, ui_preferences, role, role_position
      FROM ${USER_TABLE}
      WHERE (LOWER(username) = ? OR LOWER(email) = ?) AND delete_datetime IS NULL`,
     [clean, clean]
@@ -222,6 +227,7 @@ async function login(identifier, password) {
       email: user.email,
       first_name: user.first_name,
       last_name: user.last_name,
+      role: user.role || 'customer',
       role_position: user.role_position || 'Admin'
     },
     JWT_SECRET,
@@ -246,6 +252,7 @@ async function login(identifier, password) {
       mobile_number: user.mobile_number,
       dob: user.dob || null,
       gender: user.gender,
+      role: user.role || 'customer',
       role_position: user.role_position || 'Admin',
       profile_picture: user.profile_picture || null,
       avatar_letter: user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U',
@@ -256,7 +263,7 @@ async function login(identifier, password) {
 
 async function getProfile(uid) {
   const [[user]] = await pool.query(
-    `SELECT uid, first_name, last_name, mobile_number, email, DATE_FORMAT(dob, '%Y-%m-%d') AS dob, gender, profile_picture, username, ui_preferences, role_position
+    `SELECT uid, first_name, last_name, mobile_number, email, DATE_FORMAT(dob, '%Y-%m-%d') AS dob, gender, profile_picture, username, ui_preferences, role, role_position
      FROM ${USER_TABLE}
      WHERE uid = ? AND delete_datetime IS NULL`,
     [uid]
@@ -279,6 +286,7 @@ async function getProfile(uid) {
     mobile_number: user.mobile_number,
     dob: user.dob || null,
     gender: user.gender,
+    role: user.role || 'customer',
     role_position: user.role_position || 'Admin',
     profile_picture: user.profile_picture || null,
     avatar_letter: user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U',

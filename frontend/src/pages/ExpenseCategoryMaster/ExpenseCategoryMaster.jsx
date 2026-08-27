@@ -255,7 +255,7 @@ export default function ExpenseCategoryMaster() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 60, textAlign: 'center' }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 60, textAlign: 'right' }}>S.No</th>}
               {isVisible('category_name') && <th>Expense Category Name</th>}
               {isVisible('created_at') && <th style={{ width: 160 }}>Date Added</th>}
               {isVisible('actions') && <th className="actions-th" style={{ width: 100 }}>Actions</th>}
@@ -265,7 +265,7 @@ export default function ExpenseCategoryMaster() {
             {categories.map((cat, idx) => (
               <tr key={cat.uid} style={editingUid === cat.uid ? { background: '#eff6ff' } : {}}>
                 {isVisible('sno') && (
-                  <td style={{ textAlign: 'center', color: '#94a3b8' }}>
+                  <td className="num-cell" style={{ textAlign: 'right', color: '#94a3b8' }}>
                     {(page - 1) * pageSize + idx + 1}
                   </td>
                 )}

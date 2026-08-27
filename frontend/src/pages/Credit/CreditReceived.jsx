@@ -1004,7 +1004,7 @@ export default function CreditReceived() {
         <table className="data-table">
           <thead>
             <tr>
-              {isReceiptColVisible('sno') && <th style={{ width: 45 }}>S.No</th>}
+              {isReceiptColVisible('sno') && <th style={{ width: 45, textAlign: 'right' }}>S.No</th>}
               {isReceiptColVisible('bill_number') && <th style={{ width: 105 }}>Bill No</th>}
               {isReceiptColVisible('receipt_date') && <th>Receipt Date</th>}
               {isReceiptColVisible('customer_name') && <th>Customer</th>}
@@ -1020,7 +1020,7 @@ export default function CreditReceived() {
           <tbody>
             {receipts.map((r, idx) => (
               <tr key={r.receipt_uid}>
-                {isReceiptColVisible('sno') && <td style={{ textAlign: 'center', color: '#94a3b8' }}>{(receiptPage - 1) * receiptPageSize + idx + 1}</td>}
+                {isReceiptColVisible('sno') && <td className="num-cell" style={{ textAlign: 'right', color: '#94a3b8' }}>{(receiptPage - 1) * receiptPageSize + idx + 1}</td>}
                 {isReceiptColVisible('bill_number') && (
                   <td>
                     <span style={{ fontWeight: 700, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', padding: '0.15rem 0.45rem', borderRadius: 4, fontSize: '0.78rem', fontFamily: 'monospace' }}>

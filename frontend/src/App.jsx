@@ -1,35 +1,134 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, Link } from 'react-router-dom';
-import SizeMaster from './pages/SizeMaster/SizeMaster.jsx';
-import DealerMaster from './pages/DealerMaster/DealerMaster.jsx';
-import CustomerMaster from './pages/CustomerMaster/CustomerMaster.jsx';
-import EmployeeMaster from './pages/EmployeeMaster/EmployeeMaster.jsx';
-import CompanyRegistration from './pages/CompanyRegistration/CompanyRegistration.jsx';
-import StockInward from './pages/StockInward/StockInward.jsx';
-import StockCheck from './pages/StockCheck/StockCheck.jsx';
-import RateMaster from './pages/RateMaster/RateMaster.jsx';
-import Billing from './pages/Billing/Billing.jsx';
-import Advance from './pages/Advance/Advance.jsx';
-import AmountTransaction from './pages/AmountTransaction/AmountTransaction.jsx';
-import CreditReceived from './pages/Credit/CreditReceived.jsx';
-import CreditReport from './pages/Credit/CreditReport.jsx';
-import BankMaster from './pages/BankMaster/BankMaster.jsx';
-import TransactionMaster from './pages/TransactionMaster/TransactionMaster.jsx';
-import Expense from './pages/Expense/Expense.jsx';
-import ExpenseCategoryMaster from './pages/ExpenseCategoryMaster/ExpenseCategoryMaster.jsx';
-import ScreenRightsMaster from './pages/ScreenRights/ScreenRightsMaster.jsx';
-import GlobalActiveScreens from './pages/GlobalScreens/GlobalActiveScreens.jsx';
-import RoleMaster from './pages/RoleMaster/RoleMaster.jsx';
-import Profile from './pages/Profile/Profile.jsx';
-import Login from './pages/Auth/Login.jsx';
-import Register from './pages/Auth/Register.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { getMyScreens } from './api/screen.js';
+import { getImageUrl } from './utils/apiConfig.js';
+import './customer.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+// Public & Customer E-Commerce Pages (Lazy Loaded)
+const ProductCatalog = lazy(() => import('./pages/Catalog/ProductCatalog.jsx'));
+const Checkout = lazy(() => import('./pages/Orders/Checkout.jsx'));
+const OrderTracker = lazy(() => import('./pages/Orders/OrderTracker.jsx'));
+const AdvanceTracker = lazy(() => import('./pages/Orders/AdvanceTracker.jsx'));
+
+// Public Auth Pages (Lazy Loaded)
+const Login = lazy(() => import('./pages/Auth/Login.jsx'));
+const Register = lazy(() => import('./pages/Auth/Register.jsx'));
+
+// Admin & ERP Master Pages (Lazy Loaded)
+const SizeMaster = lazy(() => import('./pages/SizeMaster/SizeMaster.jsx'));
+const DealerMaster = lazy(() => import('./pages/DealerMaster/DealerMaster.jsx'));
+const CustomerMaster = lazy(() => import('./pages/CustomerMaster/CustomerMaster.jsx'));
+const EmployeeMaster = lazy(() => import('./pages/EmployeeMaster/EmployeeMaster.jsx'));
+const CompanyRegistration = lazy(() => import('./pages/CompanyRegistration/CompanyRegistration.jsx'));
+const StockInward = lazy(() => import('./pages/StockInward/StockInward.jsx'));
+const StockCheck = lazy(() => import('./pages/StockCheck/StockCheck.jsx'));
+const RateMaster = lazy(() => import('./pages/RateMaster/RateMaster.jsx'));
+const Billing = lazy(() => import('./pages/Billing/Billing.jsx'));
+const Advance = lazy(() => import('./pages/Advance/Advance.jsx'));
+const AmountTransaction = lazy(() => import('./pages/AmountTransaction/AmountTransaction.jsx'));
+const CreditReceived = lazy(() => import('./pages/Credit/CreditReceived.jsx'));
+const CreditReport = lazy(() => import('./pages/Credit/CreditReport.jsx'));
+const BankMaster = lazy(() => import('./pages/BankMaster/BankMaster.jsx'));
+const TransactionMaster = lazy(() => import('./pages/TransactionMaster/TransactionMaster.jsx'));
+const Expense = lazy(() => import('./pages/Expense/Expense.jsx'));
+const ExpenseCategoryMaster = lazy(() => import('./pages/ExpenseCategoryMaster/ExpenseCategoryMaster.jsx'));
+const ScreenRightsMaster = lazy(() => import('./pages/ScreenRights/ScreenRightsMaster.jsx'));
+const GlobalActiveScreens = lazy(() => import('./pages/GlobalScreens/GlobalActiveScreens.jsx'));
+const RoleMaster = lazy(() => import('./pages/RoleMaster/RoleMaster.jsx'));
+const Profile = lazy(() => import('./pages/Profile/Profile.jsx'));
+const AdminOrders = lazy(() => import('./pages/Orders/AdminOrders.jsx'));
+const AccountsReports = lazy(() => import('./pages/AccountsReports/AccountsReports.jsx'));
+const DealerPayment = lazy(() => import('./pages/DealerPayment/DealerPayment.jsx'));
+
+function PageLoadingFallback() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '60vh',
+        gap: '0.85rem',
+        color: '#64748b'
+      }}
+    >
+      <div
+        style={{
+          width: 42,
+          height: 42,
+          border: '3.5px solid #e2e8f0',
+          borderTopColor: '#2563eb',
+          borderRadius: '50%',
+          animation: 'appSpin 0.7s linear infinite'
+        }}
+      />
+      <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#475569' }}>
+        Loading...
+      </span>
+      <style>{`
+        @keyframes appSpin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 export default function App() {
   const [isNavOpen, setIsNavOpen] = useState(false);
+  const [cart, setCart] = useState(() => {
+    try {
+      const stored = localStorage.getItem('user_cart');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleAddToCart = (item, quantity = 1) => {
+    const qty = Math.max(1, Number(quantity) || 1);
+    setCart((prev) => {
+      const existing = prev.find((p) => p.uid === item.uid);
+      let updated;
+      if (existing) {
+        updated = prev.map((p) => (p.uid === item.uid ? { ...p, quantity: (p.quantity || 1) + qty } : p));
+      } else {
+        updated = [...prev, { ...item, quantity: qty }];
+      }
+      localStorage.setItem('user_cart', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleUpdateQuantity = (stockUid, quantity) => {
+    const qty = Math.max(1, Number(quantity) || 1);
+    setCart((prev) => {
+      const updated = prev.map((p) => (p.uid === stockUid ? { ...p, quantity: qty } : p));
+      localStorage.setItem('user_cart', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleRemoveFromCart = (stockUid) => {
+    setCart((prev) => {
+      const updated = prev.filter((p) => p.uid !== stockUid);
+      localStorage.setItem('user_cart', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleClearCart = () => {
+    setCart([]);
+    localStorage.removeItem('user_cart');
+  };
+
+  const handleOrderComplete = () => {
+    setCart([]);
+    localStorage.removeItem('user_cart');
+  };
+
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const stored = localStorage.getItem('auth_user');
@@ -89,7 +188,49 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+        {/* Public Catalog & E-Commerce Routes */}
+        <Route
+          path="/catalog"
+          element={
+            <ProductCatalog
+              currentUser={currentUser}
+              onAddToCart={handleAddToCart}
+              cart={cart}
+              onUpdateQuantity={handleUpdateQuantity}
+              onRemoveFromCart={handleRemoveFromCart}
+              onClearCart={handleClearCart}
+              cartCount={cart.reduce((s, i) => s + (i.quantity || 1), 0)}
+            />
+          }
+        />
+        <Route
+          path="/checkout"
+          element={
+            <Checkout
+              cart={cart}
+              currentUser={currentUser}
+              onOrderComplete={handleOrderComplete}
+              onUpdateQuantity={handleUpdateQuantity}
+              onRemoveFromCart={handleRemoveFromCart}
+              onClearCart={handleClearCart}
+            />
+          }
+        />
+        <Route
+          path="/track-orders"
+          element={<OrderTracker currentUser={currentUser} />}
+        />
+        <Route
+          path="/track-advances"
+          element={<AdvanceTracker currentUser={currentUser} />}
+        />
+        <Route
+          path="/my-advances"
+          element={<AdvanceTracker currentUser={currentUser} />}
+        />
+
         {/* Public Auth Routes */}
         <Route
           path="/login"
@@ -140,7 +281,7 @@ export default function App() {
                       }}>
                         {currentUser.profile_picture ? (
                           <img
-                            src={`${API_BASE}/images/${currentUser.profile_picture}`}
+                            src={getImageUrl(currentUser.profile_picture)}
                             alt="Avatar"
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             onError={(e) => { e.target.style.display = 'none'; }}
@@ -213,7 +354,7 @@ export default function App() {
                       }}>
                         {currentUser.profile_picture ? (
                           <img
-                            src={`${API_BASE}/images/${currentUser.profile_picture}`}
+                            src={getImageUrl(currentUser.profile_picture)}
                             alt="Avatar"
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             onError={(e) => { e.target.style.display = 'none'; }}
@@ -449,6 +590,30 @@ export default function App() {
                         </ProtectedRoute>
                       }
                     />
+                    <Route
+                      path="/admin-orders"
+                      element={
+                        <ProtectedRoute screenKey="orders_admin" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <AdminOrders />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/accounts-reports"
+                      element={
+                        <ProtectedRoute screenKey="accounts_reports" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <AccountsReports />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/dealer-payment"
+                      element={
+                        <ProtectedRoute screenKey="dealer_payment" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <DealerPayment />
+                        </ProtectedRoute>
+                      }
+                    />
                   </Routes>
                 </main>
               </div>
@@ -456,6 +621,7 @@ export default function App() {
           }
         />
       </Routes>
-    </BrowserRouter>
+    </Suspense>
+  </BrowserRouter>
   );
 }

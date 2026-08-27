@@ -362,7 +362,7 @@ export default function BankMaster() {
           <table className="data-table" style={{ marginBottom: 0 }}>
             <thead>
               <tr>
-                {isVisible('sno') && <th style={{ width: 50 }}>S.No</th>}
+                {isVisible('sno') && <th style={{ width: 50, textAlign: 'right' }}>S.No</th>}
                 {isVisible('bank_name') && <SortableHeader label="Bank Name" sortKey="bank_name" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
                 {isVisible('bank_code') && <SortableHeader label="Bank Code" sortKey="bank_code" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
                 {isVisible('account_number') && <SortableHeader label="Account Number" sortKey="account_number" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
@@ -375,7 +375,7 @@ export default function BankMaster() {
             <tbody>
               {rows.map((r, idx) => (
                 <tr key={r.uid} style={editingUid === r.uid ? { background: '#f0f9ff' } : {}}>
-                  {isVisible('sno') && <td>{(page - 1) * pageSize + idx + 1}</td>}
+                  {isVisible('sno') && <td className="num-cell">{(page - 1) * pageSize + idx + 1}</td>}
                   {isVisible('bank_name') && <td><strong>{r.bank_name}</strong></td>}
                   {isVisible('bank_code') && (
                     <td>
