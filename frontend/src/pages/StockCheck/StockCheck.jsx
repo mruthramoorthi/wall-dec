@@ -100,7 +100,7 @@ function MovementHistoryModal({ stockItem, fromDate, toDate, onClose }) {
   useEffect(() => {
     if (!stockItem) return;
     setLoading(true);
-    let url = `http://localhost:4000/api/stock-check/history/${stockItem.stock_uid}`;
+    let url = `/api/stock-check/history/${stockItem.stock_uid}`;
     const params = new URLSearchParams();
     if (fromDate) params.append('from_date', fromDate);
     if (toDate) params.append('to_date', toDate);
@@ -282,7 +282,7 @@ export default function StockCheck() {
 
   // Fetch size options
   useEffect(() => {
-    fetch('http://localhost:4000/api/size?pageSize=100')
+    fetch('/api/size?pageSize=100')
       .then((res) => res.json())
       .then((res) => setSizes(res.data || []))
       .catch((err) => console.error('Failed to load sizes:', err));
@@ -291,7 +291,7 @@ export default function StockCheck() {
   // Fetch Stock Check Report
   const loadReport = () => {
     setLoading(true);
-    let url = `http://localhost:4000/api/stock-check/report?page=${page}&pageSize=${pageSize}&sort_by=${sortBy}&sort_dir=${sortDir}`;
+    let url = `/api/stock-check/report?page=${page}&pageSize=${pageSize}&sort_by=${sortBy}&sort_dir=${sortDir}`;
     const params = new URLSearchParams();
     if (fromDate) params.append('from_date', fromDate);
     if (toDate) params.append('to_date', toDate);
@@ -584,10 +584,10 @@ export default function StockCheck() {
             <thead>
               <tr>
                 {/* S.No is the MANDATORY 1st column! */}
-                {isVisible('sno') && <th style={{ width: '60px' }}>S.No</th>}
+                {isVisible('sno') && <th style={{ width: '60px', textAlign: 'right' }}>S.No</th>}
                 {isVisible('picture') && <th style={{ width: '80px' }}>Picture</th>}
                 {isVisible('design_no') && <SortableHeader label="Design #" sortKey="design_number" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
-                {isVisible('size') && <th>Size</th>}
+                {isVisible('size') && <th style={{ textAlign: 'right' }}>Size</th>}
                 {isVisible('inward_pcs') && <SortableHeader label="Inward Pcs" sortKey="inward_pcs" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} align="right" disabled={loading} />}
                 {isVisible('billed_pcs') && <SortableHeader label="Billed Pcs" sortKey="billed_pcs" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} align="right" disabled={loading} />}
                 {isVisible('available_pcs') && <SortableHeader label="Available Pcs" sortKey="available_pcs" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} align="right" disabled={loading} />}
@@ -613,7 +613,7 @@ export default function StockCheck() {
 
                 return (
                   <tr key={r.stock_uid}>
-                    {isVisible('sno') && <td>{sNo}</td>}
+                    {isVisible('sno') && <td style={{ textAlign: 'right' }}>{sNo}</td>}
                     {isVisible('picture') && (
                       <td>
                         {imgUrl ? (
@@ -654,7 +654,7 @@ export default function StockCheck() {
                     )}
                     {isVisible('design_no') && <td style={{ fontWeight: 700, color: '#0f172a' }}>#{r.design_number}</td>}
                     {isVisible('size') && (
-                      <td>
+                      <td style={{ textAlign: 'right' }}>
                         {r.width_ft} x {r.height_ft} x {r.thickness_mm}mm
                       </td>
                     )}

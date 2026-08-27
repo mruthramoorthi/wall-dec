@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV 'C:\Users\admin\Documents\wall-dec\files (2)\inventory-erp\image-search-service\venv'
+set -gx VIRTUAL_ENV 'C:\Users\admin\Music\wall-dec\image-search-service\venv'
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/"Scripts $PATH

@@ -29,11 +29,11 @@ exports.get = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const { is_opening, dealer_uid, items } = req.body;
+    const { is_opening, dealer_uid, items, payments, paid_amount, payment_mode, bank_uid, ref_number, due_date, due_narration } = req.body;
     if (!is_opening && !dealer_uid) throw new ApiError(400, 'dealer_uid is required unless is_opening is true', 'dealer_uid');
     if (!Array.isArray(items) || items.length === 0) throw new ApiError(400, 'At least one item is required', 'items');
     items.forEach(validateItem);
-    const uids = await stockInwardModel.createBatch({ is_opening, dealer_uid, items });
+    const uids = await stockInwardModel.createBatch({ is_opening, dealer_uid, items, payments, paid_amount, payment_mode, bank_uid, ref_number, due_date, due_narration });
     res.status(201).json({ data: { uids } });
   } catch (err) { next(err); }
 };

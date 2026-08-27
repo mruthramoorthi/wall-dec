@@ -22,5 +22,8 @@ router.use('/expense-category', require('./expenseCategoryRoutes.cjs'));
 router.use('/print', require('./printRoutes.cjs'));
 router.use('/screens', require('./screenRoutes.cjs'));
 router.use('/roles', require('./roleRoutes.cjs'));
+router.use('/orders', require('./orderRoutes.cjs'));
+router.use('/accounting', require('./accountingRoutes.cjs'));
+router.use('/dealer-payments', require('./dealerPaymentRoutes.cjs'));
 
 module.exports = router;

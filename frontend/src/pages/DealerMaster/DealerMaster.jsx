@@ -237,7 +237,7 @@ export default function DealerMaster() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 60 }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 60, textAlign: 'right' }}>S.No</th>}
               {isVisible('name') && <SortableHeader label="Name" sortKey="dealer_name" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
               {isVisible('code') && <SortableHeader label="Code" sortKey="dealer_code" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
               {isVisible('mobile') && <SortableHeader label="Mobile" sortKey="mobile_number" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
@@ -250,7 +250,7 @@ export default function DealerMaster() {
           <tbody>
             {rows.map((r, idx) => (
               <tr key={r.uid}>
-                {isVisible('sno') && <td>{(page - 1) * pageSize + idx + 1}</td>}
+                {isVisible('sno') && <td className="num-cell">{(page - 1) * pageSize + idx + 1}</td>}
                 {isVisible('name') && <td>{r.dealer_name}</td>}
                 {isVisible('code') && <td>{r.dealer_code}</td>}
                 {isVisible('mobile') && <td>{r.mobile_number}</td>}

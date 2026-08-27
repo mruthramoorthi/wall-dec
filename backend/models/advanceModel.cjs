@@ -1,6 +1,7 @@
 const pool = require('../config/db.cjs');
 const { ACTIVE_FILTER, activeFilter, newUid, withTransaction, markSuperseded, markDeleted } = require('../utils/audit.cjs');
 const { syncTransaction, deleteTransaction } = require('./transactionModel.cjs');
+const accountingService = require('../services/accountingService.cjs');
 
 const TABLE = 'customer_advance';
 const ITEMS_TABLE = 'advance_prebook_items';
@@ -142,6 +143,7 @@ async function findByUid(uid) {
        api.uid,
        api.stock_uid,
        sm.design_number,
+       sm.image_filename,
        api.pieces,
        api.rate_per_piece,
        api.line_amount,
@@ -175,6 +177,10 @@ async function findByPrebookCode(code) {
        ca.is_converted_to_bill,
        ca.bill_uid,
        ca.payment_mode, 
+       ca.transaction_date,
+       ca.ref_number,
+       ca.tendered_amount,
+       ca.change_returned,
        ca.notes, 
        ca.entry_datetime
      FROM ${TABLE} ca
@@ -189,6 +195,7 @@ async function findByPrebookCode(code) {
        api.uid,
        api.stock_uid,
        sm.design_number,
+       sm.image_filename,
        api.pieces,
        api.rate_per_piece,
        api.line_amount,
@@ -286,6 +293,20 @@ async function create(data) {
         change_returned,
         narration: notes || (is_prebook ? 'Customer Pre-booking Advance' : 'Customer Advance Payment')
       });
+
+      // Post to Double-Entry Accounting General Ledger
+      await accountingService.postCustomerAdvanceEntry(conn, {
+        advanceUid: uid,
+        advanceId: advId,
+        customerUid: data.customer_uid,
+        customerName,
+        amount,
+        paymentMode: payment_mode,
+        bankUid: bank_uid,
+        transactionDate: transaction_date || new Date().toISOString().slice(0, 10),
+        notes: notes || (is_prebook ? 'Customer Pre-booking Advance' : 'Customer Advance Payment'),
+        createdBy: data.created_by || null
+      });
     }
 
     if (is_prebook && items.length > 0) {
@@ -348,12 +369,14 @@ async function edit(uid, data) {
          WHERE sm.uid = ? AND sm.delete_datetime IS NULL`,
         [uid, item.stock_uid]
       );
-      const available = Number(stockInfo?.available_pcs || 0);
-      if (available <= 0) {
-        throw Object.assign(new Error(`Design #${stockInfo?.design_number || 'Unknown'} is Out of Stock (0 pcs available). Cannot pre-book.`), { status: 422 });
-      }
-      if (Number(item.pieces) > available) {
-        throw Object.assign(new Error(`Cannot pre-book ${item.pieces} pcs of Design #${stockInfo?.design_number}: Only ${available} pcs currently available.`), { status: 422 });
+      const [[prevItem]] = await pool.query(
+        `SELECT pieces FROM ${ITEMS_TABLE} WHERE advance_uid = ? AND stock_uid = ? AND ${ACTIVE_FILTER}`,
+        [uid, item.stock_uid]
+      );
+      const previouslyReserved = prevItem ? Number(prevItem.pieces) : 0;
+      const effectiveAvailable = Number(stockInfo?.available_pcs || 0) + previouslyReserved;
+      if (Number(item.pieces) > effectiveAvailable) {
+        throw Object.assign(new Error(`Cannot pre-book ${item.pieces} pcs of Design #${stockInfo?.design_number}: Only ${effectiveAvailable} pcs available.`), { status: 422 });
       }
     }
   }
@@ -393,8 +416,23 @@ async function edit(uid, data) {
         change_returned,
         narration: notes || (is_prebook ? 'Customer Pre-booking Advance' : 'Customer Advance Payment')
       });
+
+      // Post to Double-Entry Accounting General Ledger
+      await accountingService.postCustomerAdvanceEntry(conn, {
+        advanceUid: uid,
+        advanceId: existing?.id,
+        customerUid: data.customer_uid,
+        customerName,
+        amount,
+        paymentMode: payment_mode,
+        bankUid: bank_uid,
+        transactionDate: transaction_date || new Date().toISOString().slice(0, 10),
+        notes: notes || (is_prebook ? 'Customer Pre-booking Advance' : 'Customer Advance Payment'),
+        createdBy: data.created_by || null
+      });
     } else {
       await deleteTransaction(conn, TABLE, uid);
+      await accountingService.voidJournalEntry(conn, TABLE, uid);
     }
 
     if (is_prebook && items.length > 0) {
@@ -430,6 +468,7 @@ async function softDelete(uid) {
       await markDeleted(conn, ITEMS_TABLE, row.uid);
     }
     await deleteTransaction(conn, TABLE, uid);
+    await accountingService.voidJournalEntry(conn, TABLE, uid);
     return markDeleted(conn, TABLE, uid);
   });
 }

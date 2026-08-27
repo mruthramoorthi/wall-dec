@@ -343,7 +343,7 @@ export default function TransactionMaster() {
           <table className="data-table" style={{ marginBottom: 0 }}>
             <thead>
               <tr>
-                {isVisible('sno') && <th style={{ width: 50 }}>S.No</th>}
+                {isVisible('sno') && <th style={{ width: 50, textAlign: 'right' }}>S.No</th>}
                 {isVisible('mode_name') && <SortableHeader label="Mode Name" sortKey="mode_name" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
                 {isVisible('mode_code') && <SortableHeader label="Mode Code" sortKey="mode_code" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
                 {isVisible('is_bank_linked') && <th>Bank Linked?</th>}
@@ -355,7 +355,7 @@ export default function TransactionMaster() {
             <tbody>
               {rows.map((r, idx) => (
                 <tr key={r.uid} style={editingUid === r.uid ? { background: '#f0f9ff' } : {}}>
-                  {isVisible('sno') && <td>{(page - 1) * pageSize + idx + 1}</td>}
+                  {isVisible('sno') && <td className="num-cell">{(page - 1) * pageSize + idx + 1}</td>}
                   {isVisible('mode_name') && <td><strong>{r.mode_name}</strong></td>}
                   {isVisible('mode_code') && <td><code>{r.mode_code}</code></td>}
                   {isVisible('is_bank_linked') && (

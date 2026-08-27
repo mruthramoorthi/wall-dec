@@ -593,7 +593,7 @@ export default function EmployeeMaster() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 50, textAlign: 'right' }}>S.No</th>}
               {isVisible('employee_code') && <th>Code</th>}
               {isVisible('name') && <th>Employee Name</th>}
               {isVisible('username') && <th>Login Username</th>}
@@ -602,13 +602,13 @@ export default function EmployeeMaster() {
               {isVisible('area_city') && <th>Area / City</th>}
               {isVisible('state') && <th>State</th>}
               {isVisible('registered') && <th>Registered</th>}
-              {isVisible('actions') && <th>Actions</th>}
+              {isVisible('actions') && <th className="actions-th">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => (
               <tr key={r.uid}>
-                {isVisible('sno') && <td>{(page - 1) * pageSize + idx + 1}</td>}
+                {isVisible('sno') && <td className="num-cell">{(page - 1) * pageSize + idx + 1}</td>}
                 {isVisible('employee_code') && <td style={{ fontWeight: 700, color: '#2563eb' }}>{r.employee_code}</td>}
                 {isVisible('name') && <td style={{ fontWeight: 600 }}>{r.employee_name}</td>}
                 {isVisible('username') && (
@@ -632,7 +632,7 @@ export default function EmployeeMaster() {
                 {isVisible('state') && <td>{r.state || '—'}</td>}
                 {isVisible('registered') && <td style={{ fontSize: '0.82rem', color: '#64748b' }}>{formatDateTime(r.entry_datetime)}</td>}
                 {isVisible('actions') && (
-                  <td>
+                  <td className="action-cell">
                     <button type="button" className="icon-btn edit-btn" title="Edit" disabled={loading} onClick={() => startEdit(r.uid)}><IconEdit /></button>
                     <button type="button" className="icon-btn delete-btn" title="Delete" disabled={loading} onClick={() => setDeleteTarget(r)}><IconTrash /></button>
                   </td>

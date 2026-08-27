@@ -11,6 +11,7 @@ import SearchableSelect from '../../components/SearchableSelect.jsx';
 import { openReceiptPdf } from '../../utils/printPdf.js';
 import ColumnVisibility, { useColumnVisibility } from '../../components/ColumnVisibility.jsx';
 import { TableContainer } from '../../components/TableLoadingOverlay.jsx';
+import { generateClientUid } from '../../utils/uid.js';
 
 const ADVANCE_COLS = [
   { key: 'sno', label: 'S.No', defaultVisible: true },
@@ -321,7 +322,7 @@ export default function Advance() {
     }
 
     setItems((it) => [...it, {
-      key: crypto.randomUUID(),
+      key: generateClientUid(),
       stock_uid: pendingStock.uid,
       design_number: pendingStock.design_number,
       pieces: piecesNum,
@@ -459,7 +460,7 @@ export default function Advance() {
       setNotes(row.notes || '');
       setIsPrebook(Boolean(row.is_prebook));
       setItems(Array.isArray(row.items) ? row.items.map(i => ({
-        key: crypto.randomUUID(),
+        key: generateClientUid(),
         stock_uid: i.stock_uid,
         design_number: i.design_number,
         pieces: Number(i.pieces),
@@ -1077,7 +1078,7 @@ export default function Advance() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 50 }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 50, textAlign: 'right' }}>S.No</th>}
               {isVisible('customer_name') && <th>Customer</th>}
               {isVisible('mobile_number') && <th>Mobile</th>}
               {isVisible('type') && <th>Type / Reservation</th>}
@@ -1092,7 +1093,7 @@ export default function Advance() {
             {rows.map((r, idx) => {
               return (
                 <tr key={r.uid} style={editingUid === r.uid ? { background: '#f0f9ff' } : {}}>
-                  {isVisible('sno') && <td>{(page - 1) * pageSize + idx + 1}</td>}
+                  {isVisible('sno') && <td className="num-cell">{(page - 1) * pageSize + idx + 1}</td>}
                   {isVisible('customer_name') && <td style={{ fontWeight: 600, color: '#0f172a' }}>{r.customer_name}</td>}
                   {isVisible('mobile_number') && <td style={{ color: '#475569' }}>{r.mobile_number}</td>}
                   {isVisible('type') && (

@@ -13,6 +13,7 @@ import { listBanks } from '../../api/bank.js';
 import { openReceiptPdf } from '../../utils/printPdf.js';
 import ColumnVisibility, { useColumnVisibility } from '../../components/ColumnVisibility.jsx';
 import { TableContainer } from '../../components/TableLoadingOverlay.jsx';
+import { generateClientUid } from '../../utils/uid.js';
 
 const BILLING_HISTORY_COLS = [
   { key: 'sno', label: 'S.No', defaultVisible: true },
@@ -374,7 +375,7 @@ export default function Billing() {
     }
 
     setItems((it) => [...it, {
-      key: crypto.randomUUID(),
+      key: generateClientUid(),
       stock_uid: pendingStock.uid,
       design_number: pendingStock.design_number,
       image_filename: pendingStock.image_filename,
@@ -398,7 +399,7 @@ export default function Billing() {
     setPayments((p) => [
       ...p,
       {
-        key: crypto.randomUUID(),
+        key: generateClientUid(),
         payment_mode: currentModeObj.mode_code || paymentMode,
         mode_name: currentModeObj.mode_name || paymentMode,
         amount: Number(paymentAmount),
@@ -451,7 +452,7 @@ export default function Billing() {
       // 2. Populate items
       if (Array.isArray(pb.items) && pb.items.length > 0) {
         setItems(pb.items.map(it => ({
-          key: crypto.randomUUID(),
+          key: generateClientUid(),
           stock_uid: it.stock_uid,
           design_number: it.design_number,
           pieces: Number(it.pieces),
@@ -471,7 +472,7 @@ export default function Billing() {
       if (Number(pb.amount || 0) > 0) {
         setPayments([
           {
-            key: crypto.randomUUID(),
+            key: generateClientUid(),
             payment_mode: pb.payment_mode || 'advance',
             mode_name: `Advance (${pb.prebook_code || 'Credit'})`,
             amount: Number(pb.amount || 0),
@@ -573,7 +574,7 @@ export default function Billing() {
       const b = res.data;
       setCustomer({ uid: b.customer_uid, customer_name: b.customer_name, mobile_number: b.mobile_number });
       setItems(b.items.map(i => ({
-        key: crypto.randomUUID(),
+        key: generateClientUid(),
         stock_uid: i.stock_uid,
         design_number: i.design_number,
         image_filename: i.image_filename,
@@ -587,7 +588,7 @@ export default function Billing() {
       setDueDate(b.due_date ? String(b.due_date).slice(0, 10) : '');
       setDueNarration(b.due_narration || '');
       setPayments(b.payments.map(p => ({
-        key: crypto.randomUUID(),
+        key: generateClientUid(),
         payment_mode: p.payment_mode,
         mode_name: p.payment_mode,
         amount: Number(p.amount),
@@ -812,7 +813,7 @@ export default function Billing() {
               <input placeholder="Enter stock/design code" value={designCode} onChange={(e) => setDesignCode(e.target.value.replace(/\D/g, ''))} />
               <button type="button" onClick={loadByCode}>Load by code</button>
             </div>
-            <ImageMatchPicker key={pickerKey} autoStartCamera={true} onResolved={handleImageResolved} />
+            <ImageMatchPicker key={pickerKey} autoStartCamera={false} onResolved={handleImageResolved} />
             {pendingStock && (
               <div style={{ marginTop: '1rem', padding: '1rem', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -976,7 +977,7 @@ export default function Billing() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th style={{ width: 45 }}>S.No</th>
+                    <th style={{ width: 45, textAlign: 'right' }}>S.No</th>
                     <th>Design #</th>
                     <th>Item Type</th>
                     <th className="num-cell">Pieces</th>
@@ -988,7 +989,7 @@ export default function Billing() {
                 <tbody>
                   {items.map((i, idx) => (
                     <tr key={i.key}>
-                      <td>{idx + 1}</td>
+                      <td className="num-cell">{idx + 1}</td>
                       <td style={{ fontWeight: 600 }}>Design #{i.design_number}</td>
                       <td>
                         {i.is_home_bill ? (
@@ -1464,7 +1465,7 @@ export default function Billing() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 50 }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 50, textAlign: 'right' }}>S.No</th>}
               {isVisible('customer') && <th>Customer</th>}
               {isVisible('mobile') && <th>Mobile</th>}
               {isVisible('total') && <th className="num-cell">Total</th>}
@@ -1477,7 +1478,7 @@ export default function Billing() {
           <tbody>
             {billRows.map((b, idx) => (
               <tr key={b.uid} style={editingBillUid === b.uid ? { background: '#f0f9ff' } : {}}>
-                {isVisible('sno') && <td>{(billPage - 1) * billPageSize + idx + 1}</td>}
+                {isVisible('sno') && <td className="num-cell">{(billPage - 1) * billPageSize + idx + 1}</td>}
                 {isVisible('customer') && (
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>

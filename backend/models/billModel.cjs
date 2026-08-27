@@ -1,6 +1,7 @@
 const pool = require('../config/db.cjs');
 const { ACTIVE_FILTER, activeFilter, newUid, withTransaction, markSuperseded, markDeleted } = require('../utils/audit.cjs');
 const { syncTransaction, deleteTransaction } = require('./transactionModel.cjs');
+const accountingService = require('../services/accountingService.cjs');
 
 const BILL = 'bill_master';
 const ITEMS = 'bill_items';
@@ -85,16 +86,18 @@ async function create(data) {
     if (!data.due_narration || !data.due_narration.trim()) {
       throw Object.assign(new Error('Narration is mandatory for credit bills.'), { status: 422 });
     }
-    if (paymentsSum > grand_total_computed) {
-      throw Object.assign(new Error(`Payments (₹${paymentsSum}) cannot exceed Grand Total (₹${grand_total_computed})`), { status: 422 });
+    const totalCovered = paymentsSum + advance_amount;
+    if (totalCovered > grand_total_computed) {
+      throw Object.assign(new Error(`Payments (₹${totalCovered}) cannot exceed Grand Total (₹${grand_total_computed})`), { status: 422 });
     }
-    due_amount = Math.max(0, Math.round((grand_total_computed - paymentsSum) * 100) / 100);
+    due_amount = Math.max(0, Math.round((grand_total_computed - totalCovered) * 100) / 100);
     due_date = data.due_date;
     due_narration = data.due_narration.trim();
-    credit_status = due_amount <= 0 ? 'paid' : (paymentsSum > 0 ? 'partially_paid' : 'unpaid');
+    credit_status = due_amount <= 0 ? 'paid' : (totalCovered > 0 ? 'partially_paid' : 'unpaid');
   } else {
-    if (paymentsSum !== grand_total_computed) {
-      throw Object.assign(new Error(`Payments (₹${paymentsSum}) must equal grand total (₹${grand_total_computed})`), { status: 422 });
+    const totalCovered = paymentsSum + advance_amount;
+    if (totalCovered !== grand_total_computed) {
+      throw Object.assign(new Error(`Payments (₹${totalCovered}) must equal grand total (₹${grand_total_computed})`), { status: 422 });
     }
   }
 
@@ -111,7 +114,6 @@ async function create(data) {
 
   // Stock check: strictly validate physical stock for all regular stock items (non-home-bill items)
   for (const item of data.items) {
-    // If the item is marked as a home bill / non-stock item, skip physical stock validation
     if (item.is_home_bill) continue;
 
     const [[stockInfo]] = await pool.query(
@@ -129,15 +131,22 @@ async function create(data) {
              AND (api.advance_uid != ? OR ? IS NULL)
              AND api.delete_datetime IS NULL 
              AND api.update_datetime IS NULL
-         ), 0) AS prebooked_pcs
+         ), 0) AS prebooked_pcs,
+         COALESCE((
+           SELECT SUM(oi.quantity) 
+           FROM order_items oi 
+           JOIN orders_master om ON om.uid = oi.order_uid AND om.status IN ('Pending', 'Placed', 'Processing', 'Confirmed', 'Shipped') AND om.delete_datetime IS NULL
+           WHERE oi.stock_uid = sm.uid
+         ), 0) AS online_ordered_pcs
        FROM stock_master sm
        WHERE sm.uid = ? AND ${activeFilter('sm')}`,
       [advance_uid || '', advance_uid, item.stock_uid]
     );
-    const freeAvailable = Number(stockInfo?.physical_stock_pcs || 0) - Number(stockInfo?.prebooked_pcs || 0);
+    const freeAvailable = Number(stockInfo?.physical_stock_pcs || 0) - Number(stockInfo?.prebooked_pcs || 0) - Number(stockInfo?.online_ordered_pcs || 0);
     if (stockInfo && freeAvailable < Number(item.pieces)) {
-      if (Number(stockInfo.prebooked_pcs) > 0) {
-        throw Object.assign(new Error(`Stock Item Design #${stockInfo.design_number}: Only ${freeAvailable} pcs available in store stock (${stockInfo.prebooked_pcs} pcs are pre-booked/reserved). Cannot bill ${item.pieces} pcs.`), { status: 422 });
+      const reservedTotal = Number(stockInfo.prebooked_pcs || 0) + Number(stockInfo.online_ordered_pcs || 0);
+      if (reservedTotal > 0) {
+        throw Object.assign(new Error(`Stock Item Design #${stockInfo.design_number}: Only ${freeAvailable} pcs available in store stock (${Number(stockInfo.prebooked_pcs || 0)} pcs pre-booked, ${Number(stockInfo.online_ordered_pcs || 0)} pcs reserved for online orders). Cannot bill ${item.pieces} pcs.`), { status: 422 });
       } else {
         throw Object.assign(new Error(`Stock Item Design #${stockInfo.design_number} has insufficient physical stock (${freeAvailable} pcs available, attempted to bill ${item.pieces} pcs). Stock items must be billed from available store stock.`), { status: 422 });
       }
@@ -226,6 +235,39 @@ async function create(data) {
         [billUid, advance_uid]
       );
     }
+
+    // Post to Double-Entry Accounting General Ledger
+    let createPaidCash = 0;
+    let createPaidBank = 0;
+    let createBankUid = null;
+    for (const payment of data.payments) {
+      const mode = (payment.payment_mode || 'cash').trim().toLowerCase();
+      if (mode === 'cash') {
+        createPaidCash += Number(payment.amount || 0);
+      } else {
+        createPaidBank += Number(payment.amount || 0);
+        if (payment.bank_uid) createBankUid = payment.bank_uid;
+      }
+    }
+
+    await accountingService.postSaleBillEntry(conn, {
+      billUid,
+      billId,
+      customerUid: data.customer_uid,
+      customerName,
+      billDate: new Date(),
+      subtotal: total_amount,
+      discountAmount: discount,
+      taxAmount: tax_amount,
+      roundOff: 0,
+      netTotal: grand_total_computed,
+      paidCash: createPaidCash,
+      paidBank: createPaidBank,
+      bankUid: createBankUid,
+      paidAdvance: advance_amount,
+      creditBalance: due_amount,
+      createdBy: data.created_by || null
+    });
   });
 
   return findByUid(billUid);
@@ -266,13 +308,18 @@ async function edit(uid, data) {
     if (!data.due_narration || !data.due_narration.trim()) {
       throw Object.assign(new Error('Narration is mandatory for credit bills.'), { status: 422 });
     }
-    due_amount = Math.max(0, Math.round((grand_total_computed - paymentsSum) * 100) / 100);
+    const totalCovered = paymentsSum + advance_amount;
+    if (totalCovered > grand_total_computed) {
+      throw Object.assign(new Error(`Payments (₹${totalCovered}) cannot exceed Grand Total (₹${grand_total_computed})`), { status: 422 });
+    }
+    due_amount = Math.max(0, Math.round((grand_total_computed - totalCovered) * 100) / 100);
     due_date = data.due_date;
     due_narration = data.due_narration.trim();
-    credit_status = due_amount <= 0 ? 'paid' : (paymentsSum > 0 ? 'partially_paid' : 'unpaid');
+    credit_status = due_amount <= 0 ? 'paid' : (totalCovered > 0 ? 'partially_paid' : 'unpaid');
   } else {
-    if (paymentsSum !== grand_total_computed) {
-      throw Object.assign(new Error(`Payments (₹${paymentsSum}) must equal grand total (₹${grand_total_computed})`), { status: 422 });
+    const totalCovered = paymentsSum + advance_amount;
+    if (totalCovered !== grand_total_computed) {
+      throw Object.assign(new Error(`Payments (₹${totalCovered}) must equal grand total (₹${grand_total_computed})`), { status: 422 });
     }
   }
 
@@ -349,12 +396,24 @@ async function edit(uid, data) {
     const [[cust]] = await conn.query(`SELECT customer_name FROM customer_master WHERE uid = ?`, [data.customer_uid]);
     const customerName = cust?.customer_name || 'Customer';
 
+    let editPaidCash = 0;
+    let editPaidBank = 0;
+    let editBankUid = null;
+
     for (const payment of data.payments) {
       const paymentUid = newUid();
       const denomJson = payment.denominations ? (typeof payment.denominations === 'string' ? payment.denominations : JSON.stringify(payment.denominations)) : null;
       const tenderedVal = payment.tendered_amount !== undefined && payment.tendered_amount !== '' && payment.tendered_amount !== null ? Number(payment.tendered_amount) : null;
       const changeVal = payment.change_returned !== undefined && payment.change_returned !== '' && payment.change_returned !== null ? Number(payment.change_returned) : null;
       const txDate = payment.transaction_date || new Date().toISOString().slice(0, 10);
+
+      const mode = (payment.payment_mode || 'cash').trim().toLowerCase();
+      if (mode === 'cash') {
+        editPaidCash += Number(payment.amount || 0);
+      } else {
+        editPaidBank += Number(payment.amount || 0);
+        if (payment.bank_uid) editBankUid = payment.bank_uid;
+      }
 
       await conn.query(
         `INSERT INTO ${PAYMENTS} (uid, bill_uid, payment_mode, amount, transaction_date, ref_number, bank_uid, denominations, tendered_amount, change_returned, entry_datetime)
@@ -400,20 +459,42 @@ async function edit(uid, data) {
         [uid, advance_uid]
       );
     }
+
+    // Post to Double-Entry Accounting General Ledger
+    await accountingService.postSaleBillEntry(conn, {
+      billUid: uid,
+      billId,
+      customerUid: data.customer_uid,
+      customerName,
+      billDate: new Date(),
+      subtotal: total_amount,
+      discountAmount: discount,
+      taxAmount: tax_amount,
+      roundOff: 0,
+      netTotal: grand_total_computed,
+      paidCash: editPaidCash,
+      paidBank: editPaidBank,
+      bankUid: editBankUid,
+      paidAdvance: advance_amount,
+      creditBalance: due_amount,
+      createdBy: data.created_by || null
+    });
   });
 
   return findByUid(uid);
 }
 
 async function softDelete(uid) {
-  const existingItems = await pool.query(`SELECT uid FROM ${ITEMS} WHERE bill_uid = ? AND ${ACTIVE_FILTER}`, [uid]);
-  const existingPayments = await pool.query(`SELECT uid FROM ${PAYMENTS} WHERE bill_uid = ? AND ${ACTIVE_FILTER}`, [uid]);
-  const [[bill]] = await pool.query(`SELECT advance_uid FROM ${BILL} WHERE uid = ? AND ${ACTIVE_FILTER}`, [uid]);
+  const existingItems = await pool.query(`SELECT uid FROM ${ITEMS} WHERE bill_uid = ? AND delete_datetime IS NULL`, [uid]);
+  const existingPayments = await pool.query(`SELECT uid FROM ${PAYMENTS} WHERE bill_uid = ? AND delete_datetime IS NULL`, [uid]);
+  const [[bill]] = await pool.query(`SELECT advance_uid FROM ${BILL} WHERE uid = ? AND delete_datetime IS NULL LIMIT 1`, [uid]);
 
   return withTransaction(pool, async (conn) => {
-    for (const row of existingItems[0]) await markDeleted(conn, ITEMS, row.uid);
+    for (const row of existingItems[0]) {
+      await conn.query(`UPDATE ${ITEMS} SET delete_datetime = NOW() WHERE uid = ? AND delete_datetime IS NULL`, [row.uid]);
+    }
     for (const row of existingPayments[0]) {
-      await markDeleted(conn, PAYMENTS, row.uid);
+      await conn.query(`UPDATE ${PAYMENTS} SET delete_datetime = NOW() WHERE uid = ? AND delete_datetime IS NULL`, [row.uid]);
       await deleteTransaction(conn, 'bill_payments', row.uid);
     }
     if (bill?.advance_uid) {
@@ -422,7 +503,11 @@ async function softDelete(uid) {
         [bill.advance_uid]
       );
     }
-    return markDeleted(conn, BILL, uid);
+    // Void journal entry in accounting engine
+    await accountingService.voidJournalEntry(conn, 'bill_master', uid);
+
+    const [result] = await conn.query(`UPDATE ${BILL} SET delete_datetime = NOW() WHERE uid = ? AND delete_datetime IS NULL`, [uid]);
+    return result.affectedRows > 0;
   });
 }
 

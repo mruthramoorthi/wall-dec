@@ -1,6 +1,7 @@
 const pool = require('../config/db.cjs');
 const { newUid, withTransaction } = require('../utils/audit.cjs');
 const { syncTransaction, deleteTransaction } = require('./transactionModel.cjs');
+const accountingService = require('../services/accountingService.cjs');
 
 const BILL = 'bill_master';
 const RECEIPTS = 'credit_receipts';
@@ -262,6 +263,20 @@ async function receivePayment(data, reqMeta = {}) {
       narration: narration || `Credit Received against Bill #${bill.bill_number || bill.uid.slice(0, 8)}`
     });
 
+    // Post to Double-Entry Accounting General Ledger and AR Subledger
+    await accountingService.postCreditReceiptEntry(conn, {
+      receiptUid,
+      receiptId: rcpId,
+      customerUid: bill.customer_uid,
+      customerName: bill.customer_name || 'Customer',
+      billUid: bill.uid,
+      amount: payAmt,
+      paymentMode: payment_mode,
+      bankUid: cleanBank,
+      receiptDate: receiptDateVal,
+      narration: narration || `Credit Received against Bill #${bill.bill_number || bill.uid.slice(0, 8)}`
+    });
+
     // 3. Update bill due_amount and credit_status
     await conn.query(
       `UPDATE ${BILL}
@@ -403,7 +418,6 @@ async function updateReceipt(receiptUid, data) {
 
     const [[cust]] = await conn.query(`SELECT customer_name FROM customer_master WHERE uid = ?`, [receipt.customer_uid]);
     const customerName = cust?.customer_name || 'Customer';
-    const formattedRcp = `RCP-${String(receipt.id || '').padStart(4, '0')}`;
 
     // Sync into account_transactions
     await syncTransaction(conn, {
@@ -411,7 +425,7 @@ async function updateReceipt(receiptUid, data) {
       transaction_type: 'CREDIT_RECEIVED',
       source_table: 'credit_receipts',
       source_uid: receiptUid,
-      reference_number: formattedRcp,
+      reference_number: `RCP-${String(receipt.id || '').padStart(4, '0')}`,
       party_name: customerName,
       party_uid: receipt.customer_uid,
       amount: Math.abs(newAmt),
@@ -422,6 +436,20 @@ async function updateReceipt(receiptUid, data) {
       denominations: denomJson,
       tendered_amount: numTendered,
       change_returned: numChange,
+      narration: narration || `Credit Received against Bill #${bill.bill_number || bill.uid.slice(0, 8)}`
+    });
+
+    // Post to Double-Entry Accounting General Ledger
+    await accountingService.postCreditReceiptEntry(conn, {
+      receiptUid,
+      receiptId: receipt.id,
+      customerUid: receipt.customer_uid,
+      customerName,
+      billUid: bill.uid,
+      amount: newAmt,
+      paymentMode: payment_mode,
+      bankUid: cleanBank,
+      receiptDate: receiptDateVal,
       narration: narration || `Credit Received against Bill #${bill.bill_number || bill.uid.slice(0, 8)}`
     });
 
@@ -445,18 +473,12 @@ async function updateReceipt(receiptUid, data) {
   });
 
   return {
+    success: true,
+    message: 'Receipt updated successfully.',
     receipt_uid: receiptUid,
     bill_uid: bill.uid,
     amount: newAmt,
-    payment_mode,
-    ref_number: cleanRef,
-    bank_uid: cleanBank,
-    denominations: denomJson,
-    tendered_amount: numTendered,
-    change_returned: numChange,
-    narration,
-    receipt_date: receiptDateVal,
-    remaining_due: newDue,
+    new_due_amount: newDue,
     credit_status: newStatus
   };
 }
@@ -509,8 +531,9 @@ async function deleteReceipt(receiptUid) {
       [receiptUid]
     );
 
-    // 3. Delete from account_transactions
+    // 3. Delete from account_transactions and void in accounting ledger
     await deleteTransaction(conn, 'credit_receipts', receiptUid);
+    await accountingService.voidJournalEntry(conn, 'credit_receipts', receiptUid);
 
     // 3. Update bill due_amount and credit_status (reverting the amount back to customer's due)
     await conn.query(

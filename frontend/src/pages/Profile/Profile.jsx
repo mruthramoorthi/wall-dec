@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { getProfile, updateProfile, changePassword, checkUsername } from '../../api/auth.js';
 import ImageCropperModal from '../../components/ImageCropperModal.jsx';
 import PasswordInput from '../../components/PasswordInput.jsx';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+import { getImageUrl } from '../../utils/apiConfig.js';
 
 const formatDateForInput = (val) => {
   if (!val) return '';
@@ -78,7 +77,7 @@ export default function Profile({ onUserUpdated }) {
       setGender(data.gender || 'Male');
       setUsername(data.username || '');
       if (data.profile_picture) {
-        setPicPreview(`${API_BASE}/images/${data.profile_picture}`);
+        setPicPreview(getImageUrl(data.profile_picture));
       }
     } catch (err) {
       setError(err.message);

@@ -560,7 +560,7 @@ export default function Expense() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 45 }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 45, textAlign: 'right' }}>S.No</th>}
               {isVisible('expense_date') && <th style={{ width: 110 }}>Expense Date</th>}
               {isVisible('category') && <th>Category / Purpose</th>}
               {isVisible('amount') && <th className="num-cell">Amount (₹)</th>}
@@ -573,7 +573,7 @@ export default function Expense() {
             {expenses.map((exp, idx) => (
               <tr key={exp.uid} style={editingUid === exp.uid ? { background: '#fef2f2' } : {}}>
                 {isVisible('sno') && (
-                  <td style={{ textAlign: 'center', color: '#94a3b8' }}>
+                  <td className="num-cell" style={{ textAlign: 'right', color: '#94a3b8' }}>
                     {(page - 1) * pageSize + idx + 1}
                   </td>
                 )}

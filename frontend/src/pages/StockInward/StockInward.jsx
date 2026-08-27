@@ -5,9 +5,12 @@ import SortableHeader from '../../components/SortableHeader.jsx';
 import ImageMatchPicker from '../../components/ImageMatchPicker.jsx';
 import { listSizes } from '../../api/size.js';
 import { listDealers } from '../../api/dealer.js';
+import { listBanks } from '../../api/bank.js';
 import { listStockInward, createStockInward, updateStockInward, deleteStockInward } from '../../api/stockInward.js';
+import { uploadNewDesignImage } from '../../api/stock.js';
 import ColumnVisibility, { useColumnVisibility } from '../../components/ColumnVisibility.jsx';
 import { TableContainer } from '../../components/TableLoadingOverlay.jsx';
+import { generateClientUid } from '../../utils/uid.js';
 
 const STOCK_INWARD_COLS = [
   { key: 'sno', label: 'S.No', defaultVisible: true },
@@ -24,7 +27,8 @@ const STOCK_INWARD_COLS = [
 ];
 
 function sizeLabel(s) {
-  return `${s.height_ft} x ${s.width_ft} x ${s.thickness_mm}mm`;
+  if (!s) return 'Standard Size';
+  return `${s.height_ft || 0} x ${s.width_ft || 0} x ${s.thickness_mm || 0}mm`;
 }
 
 /* ── Indian number formatter ────────────────────────────── */
@@ -101,7 +105,9 @@ function DeleteModal({ onConfirm, onCancel }) {
 /* ── Main Component ───────────────────────────────────────── */
 export default function StockInward() {
   const [sizes, setSizes]                 = useState([]);
+  const [sizeCountMap, setSizeCountMap]   = useState({}); // size_uid -> inward record count
   const [dealers, setDealers]             = useState([]);
+  const [banks, setBanks]                 = useState([]);
   const [isOpening, setIsOpening]         = useState(false);
   const [dealerUid, setDealerUid]         = useState('');
   const [sizeUid, setSizeUid]             = useState('');
@@ -109,11 +115,23 @@ export default function StockInward() {
   const [avgTotalRate, setAvgTotalRate]   = useState('');
   const [sellingPricePerPiece, setSellingPricePerPiece] = useState('');
   const [resolvedImage, setResolvedImage] = useState(null);
+  const [galleryImages, setGalleryImages] = useState([]); // [{ filename, previewUrl }]
+  const [uploadingGallery, setUploadingGallery] = useState(false);
   const [pickerKey, setPickerKey]           = useState(0);
   const [items, setItems]                 = useState([]);
   const [editingStagedKey, setEditingStagedKey] = useState(null);
   const [error, setError]                 = useState(null);
   const [saving, setSaving]               = useState(false);
+
+  /* ── Multi-Payment Options (for Dealer Inwards) ── */
+  const [purchasePayments, setPurchasePayments] = useState([]); // [{ key, payment_mode, amount, bank_uid, bank_name, ref_number, transaction_date }]
+  const [inputPayMode, setInputPayMode]         = useState('cash'); // 'cash' | 'bank' | 'upi' | 'cheque'
+  const [inputPayAmount, setInputPayAmount]     = useState('');
+  const [inputPayBankUid, setInputPayBankUid]   = useState('');
+  const [inputPayRef, setInputPayRef]           = useState('');
+  const [inputPayDate, setInputPayDate]         = useState(new Date().toISOString().slice(0, 10));
+  const [purchaseDueDate, setPurchaseDueDate]   = useState('');
+  const [purchaseDueNarration, setPurchaseDueNarration] = useState('');
 
   const [rows, setRows]                   = useState([]);
   const [page, setPage]                   = useState(1);
@@ -133,6 +151,35 @@ export default function StockInward() {
   const [editingUid, setEditingUid]       = useState(null); // uid of row being edited
   const [deleteUid, setDeleteUid]         = useState(null); // uid awaiting delete
   const [lightbox, setLightbox]           = useState(null); // { url, title }
+
+  const handleMultiplePhotosUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploadingGallery(true);
+    setError(null);
+    try {
+      const uploaded = [];
+      for (const file of files) {
+        const res = await uploadNewDesignImage(file);
+        if (res?.data?.filename) {
+          uploaded.push({
+            filename: res.data.filename,
+            previewUrl: `/images/${res.data.filename}`
+          });
+        }
+      }
+      setGalleryImages((prev) => [...prev, ...uploaded]);
+    } catch (err) {
+      setError('Failed to upload some additional photos: ' + (err.message || 'Unknown error'));
+    } finally {
+      setUploadingGallery(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveGalleryImage = (index) => {
+    setGalleryImages((prev) => prev.filter((_, idx) => idx !== index));
+  };
 
   const load = async (p = page, opts = {}) => {
     setLoading(true);
@@ -154,9 +201,22 @@ export default function StockInward() {
 
   useEffect(() => {
     (async () => {
-      const [sizeRes, dealerRes] = await Promise.all([listSizes(1, 100), listDealers(1, 100)]);
+      const [sizeRes, dealerRes, inwardRes, bankRes] = await Promise.all([
+        listSizes(1, 100),
+        listDealers(1, 100),
+        listStockInward(1, 9999, {}),
+        listBanks(1, 100).catch(() => ({ data: [] }))
+      ]);
       setSizes(sizeRes.data || []);
       setDealers(dealerRes.data || []);
+      setBanks(bankRes.data || []);
+      if (bankRes.data?.length > 0) setInputPayBankUid(bankRes.data[0].uid);
+      // Build size_uid -> record count map from all inward rows
+      const countMap = {};
+      for (const r of (inwardRes.data || [])) {
+        if (r.size_uid) countMap[r.size_uid] = (countMap[r.size_uid] || 0) + 1;
+      }
+      setSizeCountMap(countMap);
       await load(1);
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -186,8 +246,25 @@ export default function StockInward() {
     setError(null);
     if (!sizeUid) { setError('Select a size first.'); return; }
     if (!pieces || !avgTotalRate) { setError('Enter pieces and avg total rate.'); return; }
-    if (!sellingPricePerPiece) { setError('Enter sales rate / piece.'); return; }
-    if (!resolvedImage) { setError('Capture/upload a photo first (or confirm new design).'); return; }
+    // Main display photo is strictly mandatory (1 image alone)
+    if (!resolvedImage || !resolvedImage.image_filename) {
+      setError('Main Display Image is strictly mandatory. Please capture or select 1 display image.');
+      return;
+    }
+
+    // Duplicate guard: same image_filename + same size_uid already staged?
+    if (!editingStagedKey && resolvedImage.image_filename) {
+      const duplicate = items.find(
+        (i) => i.image_filename === resolvedImage.image_filename && i.size_uid === sizeUid
+      );
+      if (duplicate) {
+        setError(
+          `This image with the same size is already staged (Design: ${duplicate.design_note || 'same design'}). ` +
+          'Edit the existing staged item to add more pieces, or choose a different size.'
+        );
+        return;
+      }
+    }
 
     const targetSize = sizes.find((s) => s.uid === sizeUid);
     const itemData = {
@@ -198,7 +275,9 @@ export default function StockInward() {
       avg_rate_per_piece: Number(avgRatePerPiece),
       selling_price_per_piece: sellingPricePerPiece ? Number(sellingPricePerPiece) : null,
       image_filename: resolvedImage.image_filename,
+      gallery_images: galleryImages.map(g => g.filename),
       preview_url: resolvedImage.previewUrl || (resolvedImage.image_filename ? `/images/${resolvedImage.image_filename}` : null),
+      gallery_previews: galleryImages,
       design_note: resolvedImage.isNewDesign
         ? 'New design'
         : (resolvedImage.design_number ? `Design #${resolvedImage.design_number}` : 'Existing design'),
@@ -210,12 +289,13 @@ export default function StockInward() {
       setEditingStagedKey(null);
     } else {
       /* Add new staged item */
-      setItems((it) => [...it, { key: crypto.randomUUID(), ...itemData }]);
+      setItems((it) => [...it, { key: generateClientUid(), ...itemData }]);
     }
 
     // Reset item input fields AND image — the image is already saved in the staged item
     setSizeUid(''); setPieces(''); setAvgTotalRate(''); setSellingPricePerPiece('');
     setResolvedImage(null);
+    setGalleryImages([]);
     setPickerKey((k) => k + 1);
   };
 
@@ -227,12 +307,21 @@ export default function StockInward() {
     setPieces(String(item.pieces));
     setAvgTotalRate(String(item.avg_total_rate));
     setSellingPricePerPiece(item.selling_price_per_piece ? String(item.selling_price_per_piece) : '');
+    if (item.gallery_previews) {
+      setGalleryImages(item.gallery_previews);
+    } else if (item.gallery_images) {
+      setGalleryImages(item.gallery_images.map(fn => ({ filename: fn, previewUrl: `/images/${fn}` })));
+    } else {
+      setGalleryImages([]);
+    }
     setEditingStagedKey(key);
   };
 
   const cancelStagedEdit = () => {
     setEditingStagedKey(null);
     setSizeUid(''); setPieces(''); setAvgTotalRate(''); setSellingPricePerPiece('');
+    setResolvedImage(null);
+    setGalleryImages([]);
   };
 
   const removeItem = (key) => {
@@ -240,10 +329,90 @@ export default function StockInward() {
     if (editingStagedKey === key) cancelStagedEdit();
   };
 
+  const stagedTotalAmount = items.reduce((s, i) => s + Number(i.avg_total_rate || 0), 0);
+  const stagedPaidAmount = purchasePayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const stagedDueAmount = Math.max(0, stagedTotalAmount - stagedPaidAmount);
+
+  const handleAddPayment = () => {
+    setError(null);
+    const amt = Number(inputPayAmount || 0);
+    if (amt <= 0) {
+      setError('Please enter a valid payment amount greater than zero.');
+      return;
+    }
+    if (stagedPaidAmount + amt > stagedTotalAmount) {
+      setError(`Cannot add ₹${inr(amt)}. Total payments (₹${inr(stagedPaidAmount + amt)}) cannot exceed total purchase cost (₹${inr(stagedTotalAmount)}).`);
+      return;
+    }
+    const isBank = inputPayMode !== 'cash';
+    const selectedBank = banks.find((b) => b.uid === inputPayBankUid) || (banks.length > 0 ? banks[0] : null);
+    const bankUidToUse = isBank ? (inputPayBankUid || selectedBank?.uid || null) : null;
+    const bankNameToUse = isBank && selectedBank ? `${selectedBank.bank_name} (${selectedBank.bank_code || selectedBank.account_number?.slice(-4) || ''})` : null;
+
+    setPurchasePayments((prev) => [
+      ...prev,
+      {
+        key: generateClientUid(),
+        payment_mode: inputPayMode,
+        amount: amt,
+        bank_uid: bankUidToUse,
+        bank_name: bankNameToUse,
+        ref_number: inputPayRef ? inputPayRef.trim() : null,
+        transaction_date: inputPayDate || new Date().toISOString().slice(0, 10)
+      }
+    ]);
+
+    setInputPayAmount('');
+    setInputPayRef('');
+  };
+
+  const handleRemovePayment = (key) => {
+    setPurchasePayments((prev) => prev.filter((p) => p.key !== key));
+  };
+
+  const setQuickFullCredit = () => {
+    setPurchasePayments([]);
+  };
+
+  const setQuickFullCash = () => {
+    if (stagedTotalAmount <= 0) return;
+    setPurchasePayments([
+      {
+        key: generateClientUid(),
+        payment_mode: 'cash',
+        amount: stagedTotalAmount,
+        bank_uid: null,
+        bank_name: null,
+        ref_number: null,
+        transaction_date: new Date().toISOString().slice(0, 10)
+      }
+    ]);
+  };
+
+  const setQuickFullBank = () => {
+    if (stagedTotalAmount <= 0) return;
+    const defaultBank = banks[0] || null;
+    setPurchasePayments([
+      {
+        key: generateClientUid(),
+        payment_mode: 'bank',
+        amount: stagedTotalAmount,
+        bank_uid: defaultBank?.uid || null,
+        bank_name: defaultBank ? `${defaultBank.bank_name} (${defaultBank.bank_code || ''})` : 'Default Bank',
+        ref_number: null,
+        transaction_date: new Date().toISOString().slice(0, 10)
+      }
+    ]);
+  };
+
   const saveAll = async () => {
     setError(null);
     if (!isOpening && !dealerUid) { setError('Select a dealer, or tick Opening.'); return; }
     if (items.length === 0) { setError('Add at least one item.'); return; }
+
+    const validPayments = isOpening ? [] : purchasePayments;
+    const totalPaid = validPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
     setSaving(true);
     try {
       if (editingUid) {
@@ -262,8 +431,12 @@ export default function StockInward() {
           await createStockInward({
             is_opening: isOpening,
             dealer_uid: isOpening ? null : dealerUid,
-            items: newItems.map(({ size_uid, pieces, avg_total_rate, selling_price_per_piece, image_filename }) =>
-              ({ size_uid, pieces, avg_total_rate, selling_price_per_piece, image_filename })),
+            items: newItems.map(({ size_uid, pieces, avg_total_rate, selling_price_per_piece, image_filename, gallery_images }) =>
+              ({ size_uid, pieces, avg_total_rate, selling_price_per_piece, image_filename, gallery_images })),
+            payments: validPayments,
+            paid_amount: totalPaid,
+            due_date: purchaseDueDate || null,
+            due_narration: purchaseDueNarration || null
           });
         }
         cancelEdit();
@@ -273,13 +446,23 @@ export default function StockInward() {
         await createStockInward({
           is_opening: isOpening,
           dealer_uid: isOpening ? null : dealerUid,
-          items: items.map(({ size_uid, pieces, avg_total_rate, selling_price_per_piece, image_filename }) =>
-            ({ size_uid, pieces, avg_total_rate, selling_price_per_piece, image_filename })),
+          items: items.map(({ size_uid, pieces, avg_total_rate, selling_price_per_piece, image_filename, gallery_images }) =>
+            ({ size_uid, pieces, avg_total_rate, selling_price_per_piece, image_filename, gallery_images })),
+          payments: validPayments,
+          paid_amount: totalPaid,
+          due_date: purchaseDueDate || null,
+          due_narration: purchaseDueNarration || null
         });
         setItems([]);
         setSizeUid(''); setPieces(''); setAvgTotalRate(''); setSellingPricePerPiece('');
         setResolvedImage(null);
+        setGalleryImages([]);
         setPickerKey((k) => k + 1);
+        setPurchasePayments([]);
+        setInputPayAmount('');
+        setInputPayRef('');
+        setPurchaseDueDate('');
+        setPurchaseDueNarration('');
         await load(1);
       }
     } catch (err) {
@@ -299,7 +482,7 @@ export default function StockInward() {
 
     const targetSize = sizes.find((s) => s.uid === r.size_uid);
     const existingStagedItem = {
-      key: crypto.randomUUID(),
+      key: generateClientUid(),
       uid: r.uid,
       isExisting: true,
       size_uid: r.size_uid,
@@ -337,6 +520,7 @@ export default function StockInward() {
     setSizeUid(''); setPieces(''); setAvgTotalRate(''); setSellingPricePerPiece('');
     setDealerUid(''); setIsOpening(false); setError(null);
     setResolvedImage(null);
+    setGalleryImages([]);
     setPickerKey((k) => k + 1);
   };
 
@@ -409,10 +593,13 @@ export default function StockInward() {
               Size <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <SearchableSelect
-              options={sizes.map((s) => ({
-                value: s.uid,
-                label: sizeLabel(s)
-              }))}
+              options={[...sizes]
+                .sort((a, b) => (sizeCountMap[b.uid] || 0) - (sizeCountMap[a.uid] || 0))
+                .map((s) => ({
+                  value: s.uid,
+                  label: sizeLabel(s),
+                  sublabel: sizeCountMap[s.uid] ? `${sizeCountMap[s.uid]} record${sizeCountMap[s.uid] > 1 ? 's' : ''}` : 'No records yet'
+                }))}
               value={sizeUid}
               onChange={(val) => setSizeUid(val)}
               placeholder="Select size…"
@@ -427,7 +614,7 @@ export default function StockInward() {
             <NumericInput value={avgTotalRate} onChange={setAvgTotalRate} />
           </label>
           <label>
-            Sales rate / piece <span style={{ color: '#ef4444' }}>*</span>
+            Sales rate / piece <span style={{ color: '#64748b', fontSize: '0.82rem', fontWeight: 400 }}>(Optional)</span>
             <NumericInput value={sellingPricePerPiece} onChange={setSellingPricePerPiece} placeholder="Enter sales rate..." />
           </label>
         </div>
@@ -437,20 +624,119 @@ export default function StockInward() {
           Sales rate / piece: <strong style={{ color: '#16a34a' }}>{sellingPricePerPiece ? `₹${inr(sellingPricePerPiece)}` : '-'}</strong>
         </div>
 
-        <ImageMatchPicker
-          key={pickerKey}
-          autoStartCamera={true}
-          initialTag={resolvedImage}
-          onResolved={setResolvedImage}
-          onImageClick={(img) => setLightbox(img)}
-        />
+        {/* ── 1. Primary Display Image (Mandatory - 1 Image Alone) ── */}
+        <div style={{ marginTop: '1rem', border: '1px solid #cbd5e1', borderRadius: 8, padding: '1rem', background: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <label style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span>⭐</span> 1. Main Display Image <span style={{ color: '#ef4444' }}>* (Mandatory — 1 Image Alone)</span>
+            </label>
+            {resolvedImage?.image_filename && (
+              <span style={{ fontSize: '0.78rem', background: '#dcfce7', color: '#166534', padding: '0.2rem 0.5rem', borderRadius: 4, fontWeight: 700 }}>
+                ✓ Display Image Selected
+              </span>
+            )}
+          </div>
+          <ImageMatchPicker
+            key={pickerKey}
+            autoStartCamera={false}
+            initialTag={resolvedImage}
+            onResolved={setResolvedImage}
+            onImageClick={(img) => setLightbox(img)}
+          />
+        </div>
+
+        {/* ── 2. Additional Design Photos (Optional - Multiple Images) ── */}
+        <div style={{ marginTop: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span>📸</span> 2. Additional Design Photos <span style={{ color: '#64748b', fontWeight: 400, fontSize: '0.8rem' }}>(Optional — Upload Multiple Photos)</span>
+            </label>
+            <label style={{
+              background: '#fff',
+              border: '1px solid #cbd5e1',
+              padding: '0.4rem 0.85rem',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              color: '#0f172a',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+            }}>
+              + Add Multiple Photos
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleMultiplePhotosUpload}
+                disabled={uploadingGallery}
+              />
+            </label>
+          </div>
+
+          {uploadingGallery && (
+            <div style={{ fontSize: '0.82rem', color: '#2563eb', marginBottom: '0.5rem', fontWeight: 600 }}>
+              ⏳ Uploading additional photos...
+            </div>
+          )}
+
+          {galleryImages.length > 0 ? (
+            <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+              {galleryImages.map((img, gIdx) => (
+                <div key={gIdx} style={{ position: 'relative', width: 68, height: 68, borderRadius: 6, overflow: 'hidden', border: '1px solid #cbd5e1', background: '#fff' }}>
+                  <img
+                    src={img.previewUrl}
+                    alt={`Additional photo ${gIdx + 1}`}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }}
+                    onClick={() => setLightbox({ url: img.previewUrl, title: `Additional Photo #${gIdx + 1}` })}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveGalleryImage(gIdx)}
+                    style={{
+                      position: 'absolute',
+                      top: 2,
+                      right: 2,
+                      background: 'rgba(239, 68, 68, 0.95)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: 18,
+                      height: 18,
+                      fontSize: '10px',
+                      lineHeight: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      fontWeight: 800
+                    }}
+                    title="Remove photo"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
+              No additional photos added yet. Use the button above to upload extra views, close-ups or angles.
+            </p>
+          )}
+        </div>
+
         {editingStagedKey ? (
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
             <button type="button" onClick={addOrUpdateItem} style={{ background: '#0284c7', color: '#fff' }}>Update item</button>
             <button type="button" onClick={cancelStagedEdit} style={{ background: '#94a3b8', color: '#fff' }}>Cancel edit</button>
           </div>
         ) : (
-          <button type="button" onClick={addOrUpdateItem} style={{ marginTop: '0.75rem' }}>Add item</button>
+          <button type="button" onClick={addOrUpdateItem} style={{ marginTop: '1rem', background: '#0f172a', color: '#fff', padding: '0.6rem 1.25rem', borderRadius: 6, fontWeight: 700 }}>
+            + Add item to Staging Queue
+          </button>
         )}
       </div>
 
@@ -463,9 +749,9 @@ export default function StockInward() {
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: 45 }}>S.No</th>
+                <th style={{ width: 45, textAlign: 'right' }}>S.No</th>
                 <th style={{ width: 56 }}>Picture</th>
-                <th>Size</th>
+                <th className="num-cell">Size</th>
                 <th className="num-cell">Pieces</th>
                 <th className="num-cell">Purchase Total</th>
                 <th className="num-cell">Purchase / pc</th>
@@ -477,22 +763,43 @@ export default function StockInward() {
             <tbody>
               {items.map((i, idx) => (
                 <tr key={i.key} style={editingStagedKey === i.key ? { background: '#f0f9ff' } : {}}>
-                  <td>{idx + 1}</td>
+                  <td className="num-cell">{idx + 1}</td>
                   <td>
                     {i.preview_url ? (
-                      <img
-                        src={i.preview_url}
-                        alt="Staged thumbnail"
-                        title="Click to view large preview"
-                        onClick={() => setLightbox({ url: i.preview_url, title: i.design_note })}
-                        style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, border: '1px solid #e2e8f0', cursor: 'pointer', display: 'block' }}
-                        onError={(e) => { e.target.style.display = 'none'; }}
-                      />
+                      <div style={{ position: 'relative', display: 'inline-block' }}>
+                        <img
+                          src={i.preview_url}
+                          alt="Staged thumbnail"
+                          title="Click to view large preview"
+                          onClick={() => setLightbox({ url: i.preview_url, title: i.design_note })}
+                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, border: '1px solid #e2e8f0', cursor: 'pointer', display: 'block' }}
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                        {i.gallery_images?.length > 0 && (
+                          <span
+                            title={`${i.gallery_images.length} additional photo(s)`}
+                            style={{
+                              position: 'absolute',
+                              bottom: -4,
+                              right: -4,
+                              background: '#0284c7',
+                              color: '#fff',
+                              fontSize: '9px',
+                              fontWeight: 800,
+                              padding: '1px 4px',
+                              borderRadius: 4,
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                            }}
+                          >
+                            +{i.gallery_images.length}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span style={{ color: '#cbd5e1', fontSize: '0.75rem' }}>No image</span>
                     )}
                   </td>
-                  <td>{i.size_label}</td>
+                  <td className="num-cell">{i.size_label}</td>
                   <td className="num-cell">{Number(i.pieces).toLocaleString('en-IN')}</td>
                   <td className="num-cell">₹{inr(i.avg_total_rate)}</td>
                   <td className="num-cell">₹{inr(i.avg_rate_per_piece)}</td>
@@ -512,6 +819,278 @@ export default function StockInward() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ── Multi-Payment Options & Credit Terms (Dealer Purchase) ── */}
+      {!isOpening && items.length > 0 && (
+        <div className="card" style={{ marginTop: '1.25rem', background: '#f8fafc', border: '1.5px solid #cbd5e1' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.85rem' }}>
+            <h4 style={{ margin: 0, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span>💳</span> Multiple Payment Options & Settlement
+            </h4>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={setQuickFullCredit}
+                style={{
+                  background: purchasePayments.length === 0 ? '#7c3aed' : '#ffffff',
+                  color: purchasePayments.length === 0 ? '#ffffff' : '#475569',
+                  border: '1px solid #cbd5e1',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer'
+                }}
+              >
+                📋 Full Credit (₹0 Paid)
+              </button>
+              <button
+                type="button"
+                onClick={setQuickFullCash}
+                style={{
+                  background: (purchasePayments.length === 1 && purchasePayments[0].payment_mode === 'cash' && stagedDueAmount === 0) ? '#16a34a' : '#ffffff',
+                  color: (purchasePayments.length === 1 && purchasePayments[0].payment_mode === 'cash' && stagedDueAmount === 0) ? '#ffffff' : '#475569',
+                  border: '1px solid #cbd5e1',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer'
+                }}
+              >
+                💵 Quick Full Cash
+              </button>
+              <button
+                type="button"
+                onClick={setQuickFullBank}
+                style={{
+                  background: (purchasePayments.length === 1 && purchasePayments[0].payment_mode === 'bank' && stagedDueAmount === 0) ? '#2563eb' : '#ffffff',
+                  color: (purchasePayments.length === 1 && purchasePayments[0].payment_mode === 'bank' && stagedDueAmount === 0) ? '#ffffff' : '#475569',
+                  border: '1px solid #cbd5e1',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer'
+                }}
+              >
+                🏦 Quick Full Bank
+              </button>
+            </div>
+          </div>
+
+          {/* Amount and Breakdown Summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', background: '#ffffff', padding: '1rem', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Purchase Cost</span>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>₹{inr(stagedTotalAmount)}</div>
+            </div>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Paid Now</span>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#16a34a' }}>₹{inr(stagedPaidAmount)}</div>
+            </div>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Remaining Credit Due</span>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: stagedDueAmount > 0 ? '#dc2626' : '#64748b' }}>₹{inr(stagedDueAmount)}</div>
+            </div>
+          </div>
+
+          {/* Add Payment Split Form */}
+          <div style={{ background: '#ffffff', padding: '0.85rem', borderRadius: 8, border: '1px solid #cbd5e1', marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>+ Add Payment Split</span>
+              {stagedDueAmount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setInputPayAmount(String(stagedDueAmount))}
+                  style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', padding: '0.2rem 0.5rem', borderRadius: 4, fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Fill Remaining Due (₹{inr(stagedDueAmount)})
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', alignItems: 'flex-end' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '0.2rem' }}>
+                  Payment Mode
+                </label>
+                <select
+                  value={inputPayMode}
+                  onChange={(e) => setInputPayMode(e.target.value)}
+                  style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: '0.85rem' }}
+                >
+                  <option value="cash">💵 Cash Counter (1010)</option>
+                  <option value="bank">🏦 Bank Transfer / NEFT / RTGS</option>
+                  <option value="upi">📱 UPI / GPay / QR</option>
+                  <option value="cheque">📝 Cheque</option>
+                </select>
+              </div>
+
+              {inputPayMode !== 'cash' && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '0.2rem' }}>
+                    Bank Account
+                  </label>
+                  <select
+                    value={inputPayBankUid}
+                    onChange={(e) => setInputPayBankUid(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: '0.85rem' }}
+                  >
+                    {banks.map((b) => (
+                      <option key={b.uid} value={b.uid}>
+                        {b.bank_name} ({b.account_number ? `A/C: ${b.account_number.slice(-4)}` : b.bank_code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '0.2rem' }}>
+                  Amount (₹)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={stagedDueAmount > 0 ? stagedDueAmount : undefined}
+                  value={inputPayAmount}
+                  onChange={(e) => setInputPayAmount(e.target.value)}
+                  placeholder="e.g. 5000"
+                  style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: '0.85rem' }}
+                />
+              </div>
+
+              {inputPayMode !== 'cash' && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '0.2rem' }}>
+                    Ref / UTR / Cheque #
+                  </label>
+                  <input
+                    type="text"
+                    value={inputPayRef}
+                    onChange={(e) => setInputPayRef(e.target.value)}
+                    placeholder="e.g. UTR998811"
+                    style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: '0.85rem' }}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: '0.2rem' }}>
+                  Payment Date
+                </label>
+                <input
+                  type="date"
+                  value={inputPayDate}
+                  onChange={(e) => setInputPayDate(e.target.value)}
+                  style={{ width: '100%', padding: '0.45rem 0.6rem', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={handleAddPayment}
+                  style={{ width: '100%', background: '#0f172a', color: '#ffffff', padding: '0.5rem 0.9rem', borderRadius: 6, fontWeight: 700, fontSize: '0.84rem', cursor: 'pointer' }}
+                >
+                  + Add Payment
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Active Payment Lines Table */}
+          {purchasePayments.length > 0 ? (
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', marginBottom: '0.35rem' }}>
+                Payment Lines Added ({purchasePayments.length})
+              </div>
+              <table className="data-table" style={{ background: '#ffffff' }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 45, textAlign: 'right' }}>S.No</th>
+                    <th>Mode</th>
+                    <th>Bank / Destination</th>
+                    <th>Ref #</th>
+                    <th>Date</th>
+                    <th className="num-cell">Amount (₹)</th>
+                    <th style={{ width: 60, textAlign: 'center' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchasePayments.map((p, idx) => (
+                    <tr key={p.key}>
+                      <td className="num-cell">{idx + 1}</td>
+                      <td>
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '0.15rem 0.45rem',
+                          borderRadius: 4,
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          background: p.payment_mode === 'cash' ? '#dcfce7' : '#dbeafe',
+                          color: p.payment_mode === 'cash' ? '#166534' : '#1e40af'
+                        }}>
+                          {p.payment_mode.toUpperCase()}
+                        </span>
+                      </td>
+                      <td>{p.bank_name || (p.payment_mode === 'cash' ? 'Cash Counter (1010)' : 'Direct')}</td>
+                      <td>{p.ref_number || '-'}</td>
+                      <td>{p.transaction_date || '-'}</td>
+                      <td className="num-cell" style={{ fontWeight: 700, color: '#16a34a' }}>₹{inr(p.amount)}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          className="icon-btn delete-btn"
+                          title="Remove payment line"
+                          onClick={() => handleRemovePayment(p.key)}
+                        >
+                          <IconTrash />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.82rem', color: '#64748b', fontStyle: 'italic', marginBottom: '1rem', background: '#ffffff', padding: '0.6rem 0.85rem', borderRadius: 6, border: '1px dashed #cbd5e1' }}>
+              No upfront payments added yet. The full purchase cost (₹{inr(stagedTotalAmount)}) will be recorded as Accounts Payable (Credit Due).
+            </div>
+          )}
+
+          {/* Due Date & Narration (if Due Amount > 0) */}
+          {stagedDueAmount > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.85rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                  Promised Due Date (Optional)
+                </label>
+                <input
+                  type="date"
+                  value={purchaseDueDate}
+                  onChange={(e) => setPurchaseDueDate(e.target.value)}
+                  style={{ padding: '0.5rem 0.75rem', border: '1.5px solid #cbd5e1', borderRadius: 6, width: '100%', fontSize: '0.85rem' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                  Credit Terms / Narration
+                </label>
+                <input
+                  type="text"
+                  value={purchaseDueNarration}
+                  onChange={(e) => setPurchaseDueNarration(e.target.value)}
+                  placeholder="e.g. 30 days supplier credit agreement"
+                  style={{ padding: '0.5rem 0.75rem', border: '1.5px solid #cbd5e1', borderRadius: 6, width: '100%', fontSize: '0.85rem' }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -565,23 +1144,23 @@ export default function StockInward() {
         <table className="data-table">
           <thead>
             <tr>
-              {isVisible('sno') && <th style={{ width: 50 }}>S.No</th>}
+              {isVisible('sno') && <th style={{ width: 50, textAlign: 'right' }}>S.No</th>}
               {isVisible('picture') && <th style={{ width: 56 }}>Picture</th>}
-              {isVisible('design_no') && <SortableHeader label="Design #"      sortKey="design_number"          currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
-              {isVisible('size') && <th>Size</th>}
-              {isVisible('dealer') && <SortableHeader label="Dealer/Opening" sortKey="dealer_name"           currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
-              {isVisible('pieces') && <SortableHeader label="Pieces"         sortKey="pieces"                currentSort={sortBy} currentDir={sortDir} onSort={handleSort} className="num-cell" disabled={loading} />}
-              {isVisible('avg_purchase') && <SortableHeader label="Avg Purchase"   sortKey="avg_total_rate"        currentSort={sortBy} currentDir={sortDir} onSort={handleSort} className="num-cell" disabled={loading} />}
-              {isVisible('purchase_per_pc') && <SortableHeader label="Purchase/pc"    sortKey="avg_rate_per_piece"    currentSort={sortBy} currentDir={sortDir} onSort={handleSort} className="num-cell" disabled={loading} />}
-              {isVisible('sales_per_pc') && <SortableHeader label="Sales/pc"       sortKey="selling_price_per_piece" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} className="num-cell" disabled={loading} />}
-              {isVisible('entry_date') && <SortableHeader label="Entry Date"     sortKey="entry_datetime"        currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
+              {isVisible('design_no') && <SortableHeader label="Design #" sortKey="design_number" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
+              {isVisible('size') && <th className="num-cell" style={{ textAlign: 'right' }}>Size</th>}
+              {isVisible('dealer') && <SortableHeader label="Dealer/Opening" sortKey="dealer_name" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
+              {isVisible('pieces') && <SortableHeader label="Pieces" sortKey="pieces" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} className="num-cell" align="right" disabled={loading} />}
+              {isVisible('avg_purchase') && <SortableHeader label="Avg Purchase" sortKey="avg_total_rate" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} className="num-cell" align="right" disabled={loading} />}
+              {isVisible('purchase_per_pc') && <SortableHeader label="Purchase/pc" sortKey="avg_rate_per_piece" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} className="num-cell" align="right" disabled={loading} />}
+              {isVisible('sales_per_pc') && <SortableHeader label="Sales/pc" sortKey="selling_price_per_piece" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} className="num-cell" align="right" disabled={loading} />}
+              {isVisible('entry_date') && <SortableHeader label="Entry Date" sortKey="entry_datetime" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} disabled={loading} />}
               {isVisible('actions') && <th className="actions-th">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => (
               <tr key={r.uid} style={editingUid === r.uid ? { background: '#f0f9ff' } : {}}>
-                {isVisible('sno') && <td>{(page - 1) * pageSize + idx + 1}</td>}
+                {isVisible('sno') && <td className="num-cell">{(page - 1) * pageSize + idx + 1}</td>}
                 {isVisible('picture') && (
                   <td>
                     {r.image_filename ? (
@@ -599,7 +1178,7 @@ export default function StockInward() {
                   </td>
                 )}
                 {isVisible('design_no') && <td><strong>#{r.design_number}</strong></td>}
-                {isVisible('size') && <td>{r.height_ft} x {r.width_ft} x {r.thickness_mm}mm</td>}
+                {isVisible('size') && <td className="num-cell">{r.height_ft} x {r.width_ft} x {r.thickness_mm}mm</td>}
                 {isVisible('dealer') && <td>{r.is_opening ? 'Opening' : (r.dealer_name || r.dealer_uid)}</td>}
                 {isVisible('pieces') && <td className="num-cell">{Number(r.pieces).toLocaleString('en-IN')}</td>}
                 {isVisible('avg_purchase') && <td className="num-cell">₹{inr(r.avg_total_rate)}</td>}

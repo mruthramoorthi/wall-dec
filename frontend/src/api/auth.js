@@ -1,4 +1,5 @@
 import request from './client.js';
+import { API_BASE } from '../utils/apiConfig.js';
 
 export const sendOtp = (email) =>
   request('/auth/send-otp', { method: 'POST', body: { email } });
@@ -21,7 +22,6 @@ export const checkUsername = (username, excludeUid = null) => {
 };
 
 export const registerUser = (formData) => {
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
   return fetch(`${API_BASE}/api/auth/register`, {
     method: 'POST',
     body: formData,
@@ -41,7 +41,6 @@ export const getProfile = (uid) =>
   request(`/auth/profile/${uid}`);
 
 export const updateProfile = (uid, formData) => {
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
   return fetch(`${API_BASE}/api/auth/profile/${uid}`, {
     method: 'PUT',
     body: formData,

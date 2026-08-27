@@ -1,4 +1,4 @@
-#!C:\Users\admin\Documents\wall-dec\files (2)\inventory-erp\image-search-service\venv\Scripts\python.exe
+#!C:\Users\admin\Music\wall-dec\image-search-service\venv\Scripts\python.exe
 from __future__ import absolute_import, division, print_function
 
 from PIL import Image
