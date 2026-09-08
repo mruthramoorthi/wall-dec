@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, Link } from 'react-router-dom';
-import ProtectedRoute from './components/ProtectedRoute.jsx';
+import ProtectedRoute, { AccessRestrictedView } from './components/ProtectedRoute.jsx';
 import { getMyScreens } from './api/screen.js';
 import { getImageUrl } from './utils/apiConfig.js';
 import './customer.css';
@@ -16,6 +16,7 @@ const Login = lazy(() => import('./pages/Auth/Login.jsx'));
 const Register = lazy(() => import('./pages/Auth/Register.jsx'));
 
 // Admin & ERP Master Pages (Lazy Loaded)
+const Dashboard = lazy(() => import('./pages/Dashboard/Dashboard.jsx'));
 const SizeMaster = lazy(() => import('./pages/SizeMaster/SizeMaster.jsx'));
 const DealerMaster = lazy(() => import('./pages/DealerMaster/DealerMaster.jsx'));
 const CustomerMaster = lazy(() => import('./pages/CustomerMaster/CustomerMaster.jsx'));
@@ -236,7 +237,7 @@ export default function App() {
           path="/login"
           element={
             currentUser ? (
-              <Navigate to="/billing" replace />
+              <Navigate to="/dashboard" replace />
             ) : (
               <Login
                 onLoginSuccess={(u) => {
@@ -250,7 +251,7 @@ export default function App() {
           path="/register"
           element={
             currentUser ? (
-              <Navigate to="/billing" replace />
+              <Navigate to="/dashboard" replace />
             ) : (
               <Register />
             )
@@ -420,8 +421,17 @@ export default function App() {
 
                 <main className="app-main">
                   <Routes>
-                    <Route path="/" element={<Navigate to="/billing" replace />} />
+                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
                     
+                    <Route
+                      path="/dashboard"
+                      element={
+                        <ProtectedRoute screenKey="dashboard" allowedScreens={allowedScreens} loading={loadingScreens} currentUser={currentUser}>
+                          <Dashboard currentUser={currentUser} />
+                        </ProtectedRoute>
+                      }
+                    />
+
                     <Route
                       path="/company"
                       element={
@@ -614,6 +624,9 @@ export default function App() {
                         </ProtectedRoute>
                       }
                     />
+
+                    {/* Catch-all for any unmatched/unrelated routes */}
+                    <Route path="*" element={<AccessRestrictedView />} />
                   </Routes>
                 </main>
               </div>

@@ -53,6 +53,16 @@ export default function CartDrawer({
     };
   }, [isOpen, cart]);
 
+  // Prevent background body scrolling when cart drawer is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const totalItems = cart.reduce((sum, i) => sum + (Number(i.quantity) || 1), 0);
@@ -158,47 +168,6 @@ export default function CartDrawer({
             >
               ✕
             </button>
-          </div>
-        </div>
-
-        {/* Free Shipping Progress Indicator */}
-        <div
-          style={{
-            background: isFreeDelivery ? '#ecfdf5' : '#eff6ff',
-            padding: '0.75rem 1.25rem',
-            borderBottom: '1px solid #e2e8f0'
-          }}
-        >
-          <div
-            style={{
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              color: isFreeDelivery ? '#047857' : '#1d4ed8',
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginBottom: '0.35rem'
-            }}
-          >
-            <span>{isFreeDelivery ? '🎉 Congratulations! You have Free Shipping' : '🚚 Fast Safe Delivery'}</span>
-            <span>{!isFreeDelivery && `Add ₹${remainingForFree.toFixed(0)} for Free Delivery`}</span>
-          </div>
-          <div
-            style={{
-              height: 6,
-              background: 'rgba(0,0,0,0.08)',
-              borderRadius: 3,
-              overflow: 'hidden'
-            }}
-          >
-            <div
-              style={{
-                height: '100%',
-                width: `${progressPercent}%`,
-                background: isFreeDelivery ? '#10b981' : '#2563eb',
-                borderRadius: 3,
-                transition: 'width 0.3s ease'
-              }}
-            />
           </div>
         </div>
 
@@ -393,27 +362,31 @@ export default function CartDrawer({
                               onClick={() => onUpdateQuantity(item.uid, Math.max(1, currentQty - 1))}
                               disabled={currentQty <= 1}
                               style={{
-                                width: 24,
-                                height: 24,
+                                width: 28,
+                                height: 28,
                                 background: '#fff',
                                 border: '1px solid #cbd5e1',
-                                borderRadius: 4,
+                                borderRadius: 5,
                                 cursor: currentQty <= 1 ? 'not-allowed' : 'pointer',
-                                fontWeight: 700,
-                                fontSize: '0.85rem',
+                                fontWeight: 800,
+                                fontSize: '1.1rem',
+                                color: '#0f172a',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center'
+                                justifyContent: 'center',
+                                lineHeight: 1,
+                                padding: 0,
+                                opacity: currentQty <= 1 ? 0.4 : 1
                               }}
                             >
                               −
                             </button>
                             <span
                               style={{
-                                minWidth: 28,
+                                minWidth: 32,
                                 textAlign: 'center',
                                 fontWeight: 800,
-                                fontSize: '0.88rem',
+                                fontSize: '0.92rem',
                                 color: '#0f172a'
                               }}
                             >
@@ -424,18 +397,21 @@ export default function CartDrawer({
                               onClick={() => onUpdateQuantity(item.uid, currentQty + 1)}
                               disabled={isItemSoldOut || currentQty >= liveAvailable}
                               style={{
-                                width: 24,
-                                height: 24,
+                                width: 28,
+                                height: 28,
                                 background: '#fff',
                                 border: '1px solid #cbd5e1',
-                                borderRadius: 4,
+                                borderRadius: 5,
                                 cursor: (isItemSoldOut || currentQty >= liveAvailable) ? 'not-allowed' : 'pointer',
-                                fontWeight: 700,
-                                fontSize: '0.85rem',
+                                fontWeight: 800,
+                                fontSize: '1.1rem',
+                                color: '#0f172a',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                opacity: (isItemSoldOut || currentQty >= liveAvailable) ? 0.5 : 1
+                                lineHeight: 1,
+                                padding: 0,
+                                opacity: (isItemSoldOut || currentQty >= liveAvailable) ? 0.4 : 1
                               }}
                             >
                               +

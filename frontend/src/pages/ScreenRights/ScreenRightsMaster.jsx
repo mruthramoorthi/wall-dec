@@ -51,7 +51,7 @@ export default function ScreenRightsMaster({ onPermissionsUpdated }) {
     if (role === 'Admin') return;
     setMatrix((prev) => {
       const rolePerms = { ...(prev[role] || {}) };
-      screens.forEach((s) => {
+      filteredScreens.forEach((s) => {
         rolePerms[s.screen_key] = selectAll;
       });
       return {
@@ -82,11 +82,13 @@ export default function ScreenRightsMaster({ onPermissionsUpdated }) {
     }
   };
 
-  const filteredScreens = screens.filter((s) =>
-    (s.screen_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (s.screen_key || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (s.category || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredScreens = screens
+    .filter((s) => s.is_active === undefined || Boolean(s.is_active))
+    .filter((s) =>
+      (s.screen_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.screen_key || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.category || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
   return (
     <div className="page">
@@ -199,13 +201,11 @@ export default function ScreenRightsMaster({ onPermissionsUpdated }) {
           </thead>
           <tbody>
             {filteredScreens.map((s) => {
-              const isGloballyActive = Boolean(s.is_active);
               return (
                 <tr
                   key={s.screen_key}
                   style={{
-                    opacity: isGloballyActive ? 1 : 0.55,
-                    background: isGloballyActive ? '#fff' : '#f8fafc'
+                    background: '#fff'
                   }}
                 >
                   <td style={{ padding: '0.55rem 0.8rem' }}>
@@ -230,11 +230,7 @@ export default function ScreenRightsMaster({ onPermissionsUpdated }) {
                     </span>
                   </td>
                   <td style={{ padding: '0.55rem 0.6rem', textAlign: 'center' }}>
-                    {isGloballyActive ? (
-                      <span style={{ color: '#16a34a', fontSize: '0.78rem', fontWeight: 700 }}>● Active</span>
-                    ) : (
-                      <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>○ Off</span>
-                    )}
+                    <span style={{ color: '#16a34a', fontSize: '0.78rem', fontWeight: 700 }}>● Active</span>
                   </td>
 
                   {roles.map((role) => {

@@ -19,20 +19,12 @@ export default function CustomerNavbar({ cartCount = 0, onOpenCart, currentUser 
       {/* ── Top Sticky Customer Navigation ─────────────────────────────── */}
       <header className="cust-navbar-sticky">
         <div className="cust-navbar-inner">
-          {/* Brand Logo & Studio Tag */}
+          {/* Brand Logo & Title */}
           <Link to="/catalog" className="cust-brand-link">
             <span style={{ fontSize: '1.4rem', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}>✨</span>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                <span style={{ color: '#fff', fontWeight: 900, letterSpacing: '-0.02em', fontSize: '1.18rem' }}>
-                  WALLDEC
-                </span>
-                <span className="cust-brand-badge">STUDIO</span>
-              </div>
-              <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>
-                LUXURY ACRYLIC PANELS
-              </span>
-            </div>
+            <span style={{ color: '#fff', fontWeight: 900, letterSpacing: '-0.02em', fontSize: '1.25rem' }}>
+              WALLDEC
+            </span>
           </Link>
 
           {/* Desktop Navigation Links */}
