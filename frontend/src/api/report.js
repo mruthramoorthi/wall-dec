@@ -22,3 +22,8 @@ export const amountTransactionReport = (
 
   return request(`/reports/amount-transaction?${params.toString()}`);
 };
+
+export const getDashboardOverview = () => {
+  return request('/reports/dashboard-overview');
+};
+

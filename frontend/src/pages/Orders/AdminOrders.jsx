@@ -76,6 +76,20 @@ export default function AdminOrders() {
     }
   }
 
+  // ── Demand Trends Modal Handler ──
+  const handleOpenDemandModal = async () => {
+    setShowDemandModal(true);
+    setLoadingDemand(true);
+    try {
+      const res = await getDemandTrends();
+      setDemandData(res.data || null);
+    } catch (err) {
+      console.error('Failed to load demand trends:', err);
+    } finally {
+      setLoadingDemand(false);
+    }
+  };
+
   // ── Stage 1: Open Payment & Quantity Confirmation Modal ──
   const handleOpenConfirmPay = (order) => {
     setConfirmPayOrder(order);

@@ -46,7 +46,7 @@ export default function Login({ onLoginSuccess }) {
         onLoginSuccess(user);
       }
 
-      navigate('/billing');
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message || 'Login failed. Please verify your credentials.');
     } finally {

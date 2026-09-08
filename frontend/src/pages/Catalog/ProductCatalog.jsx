@@ -576,10 +576,26 @@ function ProductDetailModal({
     }
   };
 
+  // Prevent background page scrolling when modal is open
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
+
   const [zoomLevel, setZoomLevel] = useState(1);
   const [zoomPos, setZoomPos] = useState({ x: 50, y: 50 });
   const [isHoveringImage, setIsHoveringImage] = useState(false);
   const [isFullscreenZoom, setIsFullscreenZoom] = useState(false);
+  const previewContainerRef = useRef(null);
+  const lightboxContainerRef = useRef(null);
+
+  const zoomLevelRef = useRef(zoomLevel);
+  zoomLevelRef.current = zoomLevel;
+  const zoomPosRef = useRef(zoomPos);
+  zoomPosRef.current = zoomPos;
 
   const handleImageMouseMove = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -589,17 +605,17 @@ function ProductDetailModal({
   };
 
   const handleToggleZoom = () => {
-    setZoomLevel((prev) => (prev > 1 ? 1 : 2.2));
+    setZoomLevel((prev) => (prev > 1 ? 1 : 2.5));
   };
 
   const handleZoomIn = (e) => {
-    e.stopPropagation();
-    setZoomLevel((prev) => Math.min(3.5, prev + 0.5));
+    if (e) e.stopPropagation();
+    setZoomLevel((prev) => Math.min(4.5, Number((prev + 0.5).toFixed(1))));
   };
 
   const handleZoomOut = (e) => {
-    e.stopPropagation();
-    setZoomLevel((prev) => Math.max(1, prev - 0.5));
+    if (e) e.stopPropagation();
+    setZoomLevel((prev) => Math.max(1, Number((prev - 0.5).toFixed(1))));
   };
 
   const handleResetZoom = (e) => {
@@ -608,103 +624,142 @@ function ProductDetailModal({
     setZoomPos({ x: 50, y: 50 });
   };
 
-  const modalTouchStartX = useRef(0);
-  const modalTouchEndX = useRef(0);
-  const isPinching = useRef(false);
-  const initialPinchDist = useRef(0);
-  const initialPinchScale = useRef(1);
-  const lastTouchPos = useRef({ x: 0, y: 0 });
-  const lastTapTime = useRef(0);
+  // Setup active non-passive touch & wheel gesture handling for pinch-zoom and pan
+  useEffect(() => {
+    const bindPinchAndPan = (el) => {
+      if (!el) return () => {};
 
-  const getTouchDist = (e) => {
-    if (e.touches.length < 2) return 0;
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    return Math.hypot(dx, dy);
-  };
+      let initialPinchDist = 0;
+      let initialPinchScale = 1;
+      let isPinching = false;
+      let lastTouch = { x: 0, y: 0 };
+      let lastTap = 0;
+      let touchStartX = 0;
+      let touchEndX = 0;
 
-  const getTouchMidpoint = (e, containerRect) => {
-    if (e.touches.length < 2) return { x: 50, y: 50 };
-    const clientX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-    const clientY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    const x = Math.max(0, Math.min(100, ((clientX - containerRect.left) / containerRect.width) * 100));
-    const y = Math.max(0, Math.min(100, ((clientY - containerRect.top) / containerRect.height) * 100));
-    return { x, y };
-  };
+      const getDist = (e) => {
+        if (e.touches.length < 2) return 0;
+        return Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+      };
 
-  const handleModalTouchStart = (e) => {
-    const now = Date.now();
-    // Double-tap to zoom toggle
-    if (e.touches.length === 1 && now - lastTapTime.current < 300) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = Math.max(0, Math.min(100, ((e.touches[0].clientX - rect.left) / rect.width) * 100));
-      const y = Math.max(0, Math.min(100, ((e.touches[0].clientY - rect.top) / rect.height) * 100));
-      setZoomPos({ x, y });
-      setZoomLevel((prev) => (prev > 1 ? 1 : 2.4));
-      lastTapTime.current = 0;
-      return;
-    }
+      const getMid = (e) => {
+        const rect = el.getBoundingClientRect();
+        if (e.touches.length < 2) return { x: 50, y: 50 };
+        const clientX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const clientY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        return {
+          x: Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100)),
+          y: Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100))
+        };
+      };
 
-    if (e.touches.length === 1) {
-      lastTapTime.current = now;
-      modalTouchStartX.current = e.touches[0].clientX;
-      modalTouchEndX.current = e.touches[0].clientX;
-      lastTouchPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    } else if (e.touches.length === 2) {
-      isPinching.current = true;
-      initialPinchDist.current = getTouchDist(e);
-      initialPinchScale.current = zoomLevel;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const mid = getTouchMidpoint(e, rect);
-      setZoomPos(mid);
-    }
-  };
-
-  const handleModalTouchMove = (e) => {
-    if (e.touches.length === 2 && isPinching.current) {
-      if (e.cancelable) e.preventDefault();
-      const dist = getTouchDist(e);
-      if (initialPinchDist.current > 0) {
-        const factor = dist / initialPinchDist.current;
-        const newZoom = Math.min(4.0, Math.max(1.0, initialPinchScale.current * factor));
-        setZoomLevel(newZoom);
-      }
-    } else if (e.touches.length === 1) {
-      modalTouchEndX.current = e.touches[0].clientX;
-      // If zoomed in, allow 1-finger pan
-      if (zoomLevel > 1.05) {
-        if (e.cancelable) e.preventDefault();
-        const deltaX = e.touches[0].clientX - lastTouchPos.current.x;
-        const deltaY = e.touches[0].clientY - lastTouchPos.current.y;
-        lastTouchPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        setZoomPos((prev) => ({
-          x: Math.max(0, Math.min(100, prev.x - (deltaX / 3))),
-          y: Math.max(0, Math.min(100, prev.y - (deltaY / 3)))
-        }));
-      }
-    }
-  };
-
-  const handleModalTouchEnd = (e) => {
-    if (e.touches.length < 2) {
-      isPinching.current = false;
-      if (zoomLevel < 1.05) {
-        setZoomLevel(1);
-        setZoomPos({ x: 50, y: 50 });
-      }
-    }
-    // If not zoomed in and finished a single finger touch, check for swipe
-    if (e.touches.length === 0 && zoomLevel <= 1.05) {
-      const diff = modalTouchStartX.current - modalTouchEndX.current;
-      if (Math.abs(diff) > 45 && images.length > 1) {
-        if (diff > 0) {
-          setSelectedImageIndex((prev) => (prev + 1) % images.length);
-        } else {
-          setSelectedImageIndex((prev) => (prev - 1 + images.length) % images.length);
+      const onTouchStart = (e) => {
+        const now = Date.now();
+        if (e.touches.length === 1 && now - lastTap < 300) {
+          e.preventDefault();
+          const rect = el.getBoundingClientRect();
+          const x = Math.max(0, Math.min(100, ((e.touches[0].clientX - rect.left) / rect.width) * 100));
+          const y = Math.max(0, Math.min(100, ((e.touches[0].clientY - rect.top) / rect.height) * 100));
+          setZoomPos({ x, y });
+          setZoomLevel((prev) => (prev > 1 ? 1 : 2.5));
+          lastTap = 0;
+          return;
         }
-      }
-    }
-  };
+
+        if (e.touches.length === 1) {
+          lastTap = now;
+          touchStartX = e.touches[0].clientX;
+          touchEndX = e.touches[0].clientX;
+          lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        } else if (e.touches.length === 2) {
+          e.preventDefault();
+          isPinching = true;
+          initialPinchDist = getDist(e);
+          initialPinchScale = zoomLevelRef.current;
+          setZoomPos(getMid(e));
+        }
+      };
+
+      const onTouchMove = (e) => {
+        if (e.touches.length === 2 && isPinching) {
+          e.preventDefault();
+          const dist = getDist(e);
+          if (initialPinchDist > 0) {
+            const factor = dist / initialPinchDist;
+            const newZoom = Math.min(4.5, Math.max(1.0, initialPinchScale * factor));
+            setZoomLevel(Number(newZoom.toFixed(2)));
+            setZoomPos(getMid(e));
+          }
+        } else if (e.touches.length === 1) {
+          touchEndX = e.touches[0].clientX;
+          if (zoomLevelRef.current > 1.05) {
+            e.preventDefault();
+            const deltaX = e.touches[0].clientX - lastTouch.x;
+            const deltaY = e.touches[0].clientY - lastTouch.y;
+            lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            setZoomPos((prev) => ({
+              x: Math.max(0, Math.min(100, prev.x - (deltaX / (zoomLevelRef.current * 1.3)))),
+              y: Math.max(0, Math.min(100, prev.y - (deltaY / (zoomLevelRef.current * 1.3))))
+            }));
+          }
+        }
+      };
+
+      const onTouchEnd = (e) => {
+        if (e.touches.length < 2) {
+          isPinching = false;
+          if (zoomLevelRef.current < 1.05) {
+            setZoomLevel(1);
+            setZoomPos({ x: 50, y: 50 });
+          }
+        }
+        if (e.touches.length === 0 && zoomLevelRef.current <= 1.05) {
+          const diff = touchStartX - touchEndX;
+          if (Math.abs(diff) > 40 && images.length > 1) {
+            if (diff > 0) {
+              setSelectedImageIndex((prev) => (prev + 1) % images.length);
+            } else {
+              setSelectedImageIndex((prev) => (prev - 1 + images.length) % images.length);
+            }
+          }
+        }
+      };
+
+      const onWheel = (e) => {
+        e.preventDefault();
+        const rect = el.getBoundingClientRect();
+        const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+        const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+        setZoomPos({ x, y });
+        const delta = -e.deltaY * 0.003;
+        setZoomLevel((prev) => Math.min(4.5, Math.max(1.0, Number((prev + delta).toFixed(2)))));
+      };
+
+      el.addEventListener('touchstart', onTouchStart, { passive: false });
+      el.addEventListener('touchmove', onTouchMove, { passive: false });
+      el.addEventListener('touchend', onTouchEnd, { passive: false });
+      el.addEventListener('wheel', onWheel, { passive: false });
+
+      return () => {
+        el.removeEventListener('touchstart', onTouchStart);
+        el.removeEventListener('touchmove', onTouchMove);
+        el.removeEventListener('touchend', onTouchEnd);
+        el.removeEventListener('wheel', onWheel);
+      };
+    };
+
+    const cleanupPreview = bindPinchAndPan(previewContainerRef.current);
+    const cleanupLightbox = bindPinchAndPan(lightboxContainerRef.current);
+
+    return () => {
+      cleanupPreview();
+      cleanupLightbox();
+    };
+  }, [images.length, isFullscreenZoom]);
+
 
   useEffect(() => {
     fetchReviews();
@@ -802,7 +857,8 @@ function ProductDetailModal({
         alignItems: 'center',
         justifyContent: 'center',
         padding: '0.75rem',
-        animation: 'fadeIn 0.2s ease-out'
+        animation: 'fadeIn 0.2s ease-out',
+        overscrollBehavior: 'contain'
       }}
     >
       <div
@@ -873,7 +929,7 @@ function ProductDetailModal({
         </div>
 
         {/* Modal Body Container with Scroll */}
-        <div style={{ overflowY: 'auto', flex: 1, padding: '1.25rem' }}>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '1.25rem', overscrollBehavior: 'contain' }}>
           <div
             style={{
               display: 'grid',
@@ -885,6 +941,7 @@ function ProductDetailModal({
             {/* Left: Gallery with Zoom Options */}
             <div>
               <div
+                ref={previewContainerRef}
                 style={{
                   position: 'relative',
                   height: 330,
@@ -894,8 +951,10 @@ function ProductDetailModal({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  touchAction: zoomLevel > 1 ? 'none' : 'pan-y',
-                  cursor: zoomLevel > 1 ? 'zoom-out' : 'zoom-in'
+                  touchAction: 'none',
+                  cursor: zoomLevel > 1 ? 'grab' : 'zoom-in',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none'
                 }}
                 onMouseMove={handleImageMouseMove}
                 onMouseEnter={() => setIsHoveringImage(true)}
@@ -904,11 +963,68 @@ function ProductDetailModal({
                   if (zoomLevel === 1) setZoomPos({ x: 50, y: 50 });
                 }}
                 onDoubleClick={handleToggleZoom}
-                onTouchStart={handleModalTouchStart}
-                onTouchMove={handleModalTouchMove}
-                onTouchEnd={handleModalTouchEnd}
-                title="Hover & move to magnify, double-click to toggle 2.2x zoom"
+                title="Pinch or double-tap to zoom, drag to pan"
               >
+                {/* Floating Hint & Zoom Status Badges */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 10,
+                    left: 10,
+                    background: 'rgba(15, 23, 42, 0.75)',
+                    backdropFilter: 'blur(4px)',
+                    color: '#94a3b8',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: 6,
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    pointerEvents: 'none',
+                    zIndex: 3
+                  }}
+                >
+                  📱 Pinch to Zoom • Drag to Pan
+                </div>
+
+                {zoomLevel > 1.05 && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: 10,
+                      right: 10,
+                      background: 'rgba(15, 23, 42, 0.88)',
+                      backdropFilter: 'blur(6px)',
+                      color: '#38bdf8',
+                      padding: '0.25rem 0.6rem',
+                      borderRadius: 8,
+                      fontSize: '0.78rem',
+                      fontWeight: 800,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      zIndex: 4,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
+                    }}
+                  >
+                    <span>🔍 {zoomLevel.toFixed(1)}x</span>
+                    <button
+                      type="button"
+                      onClick={handleResetZoom}
+                      style={{
+                        background: '#38bdf8',
+                        color: '#0f172a',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '0.15rem 0.45rem',
+                        fontSize: '0.72rem',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                      title="Reset Zoom to 1x"
+                    >
+                      Reset 1x
+                    </button>
+                  </div>
+                )}
                 {images.length > 0 ? (
                   <img
                     src={getImageUrl(images[selectedImageIndex], 'medium')}
@@ -1142,7 +1258,7 @@ function ProductDetailModal({
                 <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.88rem', color: '#0f172a', fontWeight: 700 }}>
                   📐 Panel Specs
                 </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.82rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.65rem', fontSize: '0.82rem' }}>
                   <div>
                     <span style={{ color: '#64748b' }}>Dimensions:</span>{' '}
                     <strong style={{ color: '#0f172a' }}>{product.width_ft || 8} x {product.height_ft || 4} ft</strong>
@@ -1150,10 +1266,6 @@ function ProductDetailModal({
                   <div>
                     <span style={{ color: '#64748b' }}>Thickness:</span>{' '}
                     <strong style={{ color: '#0f172a' }}>{product.thickness_mm || 6} mm</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: '#64748b' }}>Grade:</span>{' '}
-                    <strong style={{ color: '#0f172a' }}>High-Gloss Acrylic</strong>
                   </div>
                   <div>
                     <span style={{ color: '#64748b' }}>Warehouse Stock:</span>{' '}
@@ -1479,6 +1591,7 @@ function ProductDetailModal({
 
           {/* Lightbox Center Image Canvas */}
           <div
+            ref={lightboxContainerRef}
             style={{
               flex: 1,
               display: 'flex',
@@ -1487,13 +1600,12 @@ function ProductDetailModal({
               overflow: 'hidden',
               padding: '1rem',
               cursor: zoomLevel > 1 ? 'grab' : 'zoom-in',
-              touchAction: 'none'
+              touchAction: 'none',
+              userSelect: 'none',
+              WebkitUserSelect: 'none'
             }}
             onDoubleClick={handleToggleZoom}
             onMouseMove={handleImageMouseMove}
-            onTouchStart={handleModalTouchStart}
-            onTouchMove={handleModalTouchMove}
-            onTouchEnd={handleModalTouchEnd}
           >
             {images.length > 0 && (
               <img
@@ -1673,33 +1785,6 @@ export default function ProductCatalog({
       />
 
       <main style={{ maxWidth: 1320, width: '100%', margin: '0 auto', padding: '1rem', flex: 1 }}>
-        {/* Hero Card */}
-        <div className="cust-hero-card">
-          <div style={{ position: 'relative', zIndex: 2, maxWidth: 640 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', color: '#38bdf8', padding: '0.25rem 0.65rem', borderRadius: 20, fontSize: '0.75rem', fontWeight: 800, marginBottom: '0.5rem' }}>
-              <span>✨</span> ARCHITECTURAL WALL ART PANELS
-            </div>
-            <h1 style={{ margin: '0 0 0.4rem', fontSize: '1.85rem', fontWeight: 900, lineHeight: 1.2, color: '#fff' }}>
-              Luxury Decorative Wall Panels
-            </h1>
-            <p style={{ margin: '0 0 1rem', color: '#94a3b8', fontSize: '0.92rem', lineHeight: 1.4 }}>
-              Choose your exact sheet quantities. High-gloss finish, immediate courier dispatch.
-            </p>
-
-            <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
-              <div style={{ background: 'rgba(255, 255, 255, 0.08)', padding: '0.35rem 0.75rem', borderRadius: 6, fontSize: '0.78rem', color: '#cbd5e1' }}>
-                📦 <strong>{products.length}</strong> Designs
-              </div>
-              <div style={{ background: 'rgba(255, 255, 255, 0.08)', padding: '0.35rem 0.75rem', borderRadius: 6, fontSize: '0.78rem', color: '#cbd5e1' }}>
-                ⚡ <strong>{products.filter(p => Number(p.available_pcs || 0) > 0).length}</strong> Ready in Warehouse
-              </div>
-              <div style={{ background: 'rgba(255, 255, 255, 0.08)', padding: '0.35rem 0.75rem', borderRadius: 6, fontSize: '0.78rem', color: '#cbd5e1' }}>
-                🚚 Free Delivery on ₹5,000+
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Category Pills */}
         <div className="cust-category-pills">
           <button

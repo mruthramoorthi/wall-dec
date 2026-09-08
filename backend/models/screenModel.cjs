@@ -31,7 +31,7 @@ async function getAllScreens(includeHidden = true) {
  */
 async function getActiveScreens() {
   const [screens] = await pool.query(
-    `SELECT id, uid, screen_key, screen_name, icon, route_path, category, display_order, is_admin_only
+    `SELECT id, uid, screen_key, screen_name, icon, route_path, category, display_order, is_active, is_admin_only
      FROM ${SCREEN_TABLE}
      WHERE is_active = 1 AND screen_key != 'global_screens' AND delete_datetime IS NULL
      ORDER BY display_order ASC, id ASC`
@@ -74,7 +74,7 @@ async function getAvailableRoles() {
  * Get complete permissions matrix (Roles x Screens)
  */
 async function getPermissionsMatrix() {
-  const screens = await getAllScreens(false); // Exclude global_screens from standard matrix
+  const screens = await getActiveScreens(); // Only allowed / active screens
   const roles = await getAvailableRoles();
   const [perms] = await pool.query(
     `SELECT role_name, screen_key, can_view FROM ${PERMISSION_TABLE}`
